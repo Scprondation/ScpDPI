@@ -859,7 +859,9 @@ struct PacketEngine::Impl {
                         discord_ip_discovery_other_ports.fetch_add(1U, std::memory_order_relaxed);
                 } else if (voice_kind == VoiceDiscoveryKind::stun)
                     stun_binding_requests.fetch_add(1U, std::memory_order_relaxed);
-                if (!tunnel) {
+                // A/B diagnostic: do not synthesize a second Discord IP-discovery
+                // request with a mutated SSRC. Forward the client's request unchanged.
+                if (!tunnel && voice_kind == VoiceDiscoveryKind::stun) {
                     auto decoy = bytes;
                     const auto payload = std::span<const std::uint8_t>(parsed.payload, parsed.payload_length);
                     const auto key = voice_discovery_key(parsed, payload, voice_kind);
