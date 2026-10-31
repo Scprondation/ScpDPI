@@ -146,6 +146,7 @@ public:
                      "send_failures={} passive_resets_dropped={} udp443_candidates={} udp443_tunnel_candidates={} "
                      "quic_fallbacks={} discord_quic_fallbacks={} voice_udp_port_candidates={} voice_udp_tunnel_candidates={} "
                      "voice_discovery_requests={} voice_discovery_direct={} voice_discovery_tunnel={} discord_ip_discovery={} "
+                     "discord_ip_discovery_other_ports={} "
                      "udp_decoys_sent={} udp_decoys_failed={} tunnel_interfaces={} strategy_changes={}",
                      snapshot.interfaces.size(), snapshot.routes.size(), snapshot.vpn_interfaces.size(),
                      dpi_enabled, dpi_.running(), dpi_error, stats.packets_seen, stats.tcp_tls_candidates_outbound,
@@ -156,7 +157,8 @@ public:
                      stats.quic_udp_443_dropped, stats.discord_quic_fallbacks, stats.voice_udp_candidate_packets,
                      stats.voice_udp_tunnel_candidate_packets, stats.voice_udp_requests,
                      stats.voice_udp_direct_requests, stats.voice_udp_tunnel_requests,
-                     stats.discord_ip_discovery_requests, stats.voice_udp_decoys_sent, stats.voice_udp_decoy_failures,
+                     stats.discord_ip_discovery_requests, stats.discord_ip_discovery_other_ports,
+                     stats.voice_udp_decoys_sent, stats.voice_udp_decoy_failures,
                      stats.tunnel_interfaces, stats.strategies_changed);
     }
     json handle(const IpcRequest& request) {
@@ -260,6 +262,7 @@ public:
                             {"voice_udp_direct_requests", stats.voice_udp_direct_requests},
                             {"voice_udp_tunnel_requests", stats.voice_udp_tunnel_requests},
                             {"discord_ip_discovery_requests", stats.discord_ip_discovery_requests},
+                            {"discord_ip_discovery_other_ports", stats.discord_ip_discovery_other_ports},
                             {"voice_udp_decoys_sent", stats.voice_udp_decoys_sent},
                             {"voice_udp_decoy_failures", stats.voice_udp_decoy_failures},
                             {"passive_resets_dropped", stats.passive_resets_dropped},

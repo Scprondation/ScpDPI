@@ -65,8 +65,32 @@ Code inspection found that QUIC handling was disabled globally whenever any tunn
 - `git diff --check` reported no whitespace errors. No tests or live Discord browser/RTC test were run.
 - The user's browser/RTC result still needs confirmation after installing that build. If RTC continues to fail directly, ScpDPI cannot substitute for a UDP-capable route or VPN.
 
+## 2026-10-31 19:25–19:26 — Follow-up runtime report and UDP filter gap
+
+The user supplied updated service logs and `C:\Users\scprondation\AppData\Local\ScpDPI\config.json`. The relevant config is `profile=default`, DPI engine enabled, 3-second scan interval, file logging enabled at `info`, and unknown traffic set to bypass. No setting in this file disables DPI or voice discovery.
+
+Verbatim new snapshots:
+
+```text
+[2026-10-31 19:25:22.951] [scpdpi] [info] ScpDPI service initialized with profile default
+[2026-10-31 19:25:23.580] [scpdpi] [info] DPI packet processor started
+[2026-10-31 19:25:23.581] [scpdpi] [info] Diagnostic snapshot: interfaces=2 routes=17 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=0 tcp_tls_candidates=0 tcp_tls_tunnel_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 discord_tls_matches=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=0 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=0 strategy_changes=0
+[2026-10-31 19:26:23.777] [scpdpi] [info] Diagnostic snapshot: interfaces=3 routes=23 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=24319 tcp_tls_candidates=9548 tcp_tls_tunnel_candidates=0 tls_parsed=101 tls_unlisted=62 tls_timeouts=14 listed_tls_matches=48 discord_tls_matches=12 split_packets=191 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=483 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=1 strategy_changes=0
+```
+
+The second snapshot confirms ScpDPI recognized 12 Discord TLS ClientHellos and resegmented listed traffic without split or reinjection failures. There were 483 outbound UDP/443 candidates but no listed QUIC Initial fallback. There were no voice discovery packets on the UDP ports the current build watched. That zero is not proof that Discord sent no discovery packet: the UDP filter only included a fixed port list.
+
+Discord's current voice protocol documentation says the server's `Ready` message supplies the UDP address and port and the client opens UDP to that assigned endpoint. The observed fixed-port-only capture could therefore miss Discord's discovery request. The follow-up change selects outbound UDP packets whose payload length is exactly 74 bytes, regardless of destination port, then validates the protocol signature before counting or creating any discovery decoy. Other UDP packets remain unmodified and are immediately reinjected. A new counter records valid Discord discovery packets outside the previous candidate-port list without logging their port or contents.
+
+### Follow-up verification
+
+- The dynamic-port discovery filter, packet validation, and additional counter compiled successfully with MSVC 14.52 for `scpdpi_service` Release. Binary: `out/build/windows-console-release-vpnfix/src/service/scpdpi_service.exe` (545,792 bytes).
+- `git diff --check` reported no whitespace errors. No tests or live Discord RTC session were run.
+- These snapshots do not establish whether RTC was attempted during the measured minute. If a new run still reports zero Discord IP discovery after attempting to join a voice channel, the next check is Discord's browser developer console and an external route/firewall check; the packet log alone cannot distinguish “Discord sent no UDP” from “UDP never reached this capture layer.”
+
 ## References
 
 - [GoodbyeDPI official repository and behavior description](https://github.com/ValdikSS/GoodbyeDPI)
 - [GoodbyeDPI published license](https://github.com/ValdikSS/GoodbyeDPI/blob/master/LICENSE)
 - [Discord: Ошибки голосового соединения](https://support.discord.com/hc/ru/articles/115001310031-%D0%9E%D1%88%D0%B8%D0%B1%D0%BA%D0%B8-%D0%B3%D0%BE%D0%BB%D0%BE%D1%81%D0%BE%D0%B2%D0%BE%D0%B3%D0%BE-%D1%81%D0%BE%D0%B5%D0%B4%D0%B8%D0%BD%D0%B5%D0%BD%D0%B8%D1%8F)
+- [Discord voice connection protocol](https://docs.discord.com/developers/topics/voice-connections)

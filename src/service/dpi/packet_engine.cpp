@@ -323,6 +323,7 @@ struct PacketEngine::Impl {
     std::atomic<std::uint64_t> voice_udp_direct_requests{};
     std::atomic<std::uint64_t> voice_udp_tunnel_requests{};
     std::atomic<std::uint64_t> discord_ip_discovery_requests{};
+    std::atomic<std::uint64_t> discord_ip_discovery_other_ports{};
     std::atomic<std::uint64_t> voice_udp_decoys_sent{};
     std::atomic<std::uint64_t> voice_udp_decoy_failures{};
     std::atomic<std::uint64_t> passive_resets_dropped{};
@@ -649,55 +650,60 @@ struct PacketEngine::Impl {
         const bool tunnel = is_tunnel(address);
         if (parsed.udp != nullptr && address.Outbound != 0U) {
             const auto destination_port = WinDivertHelperNtohs(parsed.udp->DstPort);
+            const auto voice_kind = parsed.payload != nullptr && parsed.payload_length > 0U ?
+                identify_voice_discovery(std::span<const std::uint8_t>(parsed.payload, parsed.payload_length)) :
+                VoiceDiscoveryKind::none;
             if (destination_port == 443U) {
                 udp_443_candidates.fetch_add(1U, std::memory_order_relaxed);
                 if (tunnel) udp_443_tunnel_candidates.fetch_add(1U, std::memory_order_relaxed);
-                // A direct QUIC Initial is dropped only when its authenticated
-                // ClientHello identifies a listed site. Unknown QUIC and every
-                // packet on a recognized tunnel keep their original path.
-                // Use the route of this packet. An unrelated tunnel adapter
-                // (for example Teredo) must not disable QUIC handling globally.
-                const auto server_name = tunnel ? std::nullopt :
-                    quic_initial_server_name(std::span<const std::uint8_t>(parsed.payload, parsed.payload_length));
-                if (server_name && hosts.matches(*server_name)) {
-                    quic_udp_443_dropped.fetch_add(1U, std::memory_order_relaxed);
-                    if (hosts.matches_discord(*server_name))
-                        discord_quic_fallbacks.fetch_add(1U, std::memory_order_relaxed);
-                } else
-                    (void)send_packet(bytes, address);
-                return;
+                if (voice_kind == VoiceDiscoveryKind::none) {
+                    // A direct QUIC Initial is dropped only when its authenticated
+                    // ClientHello identifies a listed site. Unknown QUIC and every
+                    // packet on a recognized tunnel keep their original path.
+                    // Use the route of this packet. An unrelated tunnel adapter
+                    // (for example Teredo) must not disable QUIC handling globally.
+                    const auto server_name = tunnel ? std::nullopt :
+                        quic_initial_server_name(std::span<const std::uint8_t>(parsed.payload, parsed.payload_length));
+                    if (server_name && hosts.matches(*server_name)) {
+                        quic_udp_443_dropped.fetch_add(1U, std::memory_order_relaxed);
+                        if (hosts.matches_discord(*server_name))
+                            discord_quic_fallbacks.fetch_add(1U, std::memory_order_relaxed);
+                    } else
+                        (void)send_packet(bytes, address);
+                    return;
+                }
             }
             if (is_voice_candidate_port(destination_port)) {
                 voice_udp_candidate_packets.fetch_add(1U, std::memory_order_relaxed);
                 if (tunnel) voice_udp_tunnel_candidate_packets.fetch_add(1U, std::memory_order_relaxed);
             }
-            if (is_voice_candidate_port(destination_port) && parsed.payload != nullptr && parsed.payload_length > 0U) {
-                const auto kind = identify_voice_discovery(std::span<const std::uint8_t>(parsed.payload, parsed.payload_length));
-                if (kind != VoiceDiscoveryKind::none) {
-                    voice_udp_requests.fetch_add(1U, std::memory_order_relaxed);
-                    if (tunnel) voice_udp_tunnel_requests.fetch_add(1U, std::memory_order_relaxed);
-                    else voice_udp_direct_requests.fetch_add(1U, std::memory_order_relaxed);
-                    if (kind == VoiceDiscoveryKind::discord)
-                        discord_ip_discovery_requests.fetch_add(1U, std::memory_order_relaxed);
-                    if (!tunnel) {
-                        auto decoy = bytes;
-                        const auto payload = std::span<const std::uint8_t>(parsed.payload, parsed.payload_length);
-                        const auto key = voice_discovery_key(parsed, payload, kind);
-                        if (mark_voice_decoy(key, Clock::now())) {
-                            if (!make_voice_decoy(payload, kind, decoy, parsed.payload_offset)) {
-                                voice_udp_decoy_failures.fetch_add(1U, std::memory_order_relaxed);
-                            } else {
-                                ParsedPacket decoy_headers;
-                                WINDIVERT_ADDRESS decoy_address = address;
-                                if (parse_packet(decoy, decoy_headers) &&
-                                    WinDivertHelperCalcChecksums(decoy.data(), static_cast<UINT>(decoy.size()), &decoy_address, 0U)) {
-                                    if (send_packet(decoy, decoy_address))
-                                        voice_udp_decoys_sent.fetch_add(1U, std::memory_order_relaxed);
-                                    else
-                                        voice_udp_decoy_failures.fetch_add(1U, std::memory_order_relaxed);
-                                } else {
+            if (voice_kind != VoiceDiscoveryKind::none) {
+                voice_udp_requests.fetch_add(1U, std::memory_order_relaxed);
+                if (tunnel) voice_udp_tunnel_requests.fetch_add(1U, std::memory_order_relaxed);
+                else voice_udp_direct_requests.fetch_add(1U, std::memory_order_relaxed);
+                if (voice_kind == VoiceDiscoveryKind::discord) {
+                    discord_ip_discovery_requests.fetch_add(1U, std::memory_order_relaxed);
+                    if (!is_voice_candidate_port(destination_port) && destination_port != 443U)
+                        discord_ip_discovery_other_ports.fetch_add(1U, std::memory_order_relaxed);
+                }
+                if (!tunnel) {
+                    auto decoy = bytes;
+                    const auto payload = std::span<const std::uint8_t>(parsed.payload, parsed.payload_length);
+                    const auto key = voice_discovery_key(parsed, payload, voice_kind);
+                    if (mark_voice_decoy(key, Clock::now())) {
+                        if (!make_voice_decoy(payload, voice_kind, decoy, parsed.payload_offset)) {
+                            voice_udp_decoy_failures.fetch_add(1U, std::memory_order_relaxed);
+                        } else {
+                            ParsedPacket decoy_headers;
+                            WINDIVERT_ADDRESS decoy_address = address;
+                            if (parse_packet(decoy, decoy_headers) &&
+                                WinDivertHelperCalcChecksums(decoy.data(), static_cast<UINT>(decoy.size()), &decoy_address, 0U)) {
+                                if (send_packet(decoy, decoy_address))
+                                    voice_udp_decoys_sent.fetch_add(1U, std::memory_order_relaxed);
+                                else
                                     voice_udp_decoy_failures.fetch_add(1U, std::memory_order_relaxed);
-                                }
+                            } else {
+                                voice_udp_decoy_failures.fetch_add(1U, std::memory_order_relaxed);
                             }
                         }
                     }
@@ -777,7 +783,7 @@ struct PacketEngine::Impl {
         const auto list_result = hosts.load(runtime_directory);
         if (!list_result) { set_error(list_result.error().message); return list_result; }
         refresh_tunnels();
-        constexpr char filter[] = "!impostor and !loopback and (tcp.DstPort == 80 or tcp.SrcPort == 80 or tcp.DstPort == 443 or tcp.SrcPort == 443 or tcp.DstPort == 2053 or tcp.SrcPort == 2053 or tcp.DstPort == 2083 or tcp.SrcPort == 2083 or tcp.DstPort == 2087 or tcp.SrcPort == 2087 or tcp.DstPort == 2096 or tcp.SrcPort == 2096 or tcp.DstPort == 8443 or tcp.SrcPort == 8443 or (outbound and (udp.DstPort == 443 or udp.DstPort == 3478 or udp.DstPort == 3479 or udp.DstPort == 5349 or udp.DstPort == 19302 or (udp.DstPort >= 19294 and udp.DstPort <= 19344) or (udp.DstPort >= 50000 and udp.DstPort <= 50100))))";
+        constexpr char filter[] = "!impostor and !loopback and (tcp.DstPort == 80 or tcp.SrcPort == 80 or tcp.DstPort == 443 or tcp.SrcPort == 443 or tcp.DstPort == 2053 or tcp.SrcPort == 2053 or tcp.DstPort == 2083 or tcp.SrcPort == 2083 or tcp.DstPort == 2087 or tcp.SrcPort == 2087 or tcp.DstPort == 2096 or tcp.SrcPort == 2096 or tcp.DstPort == 8443 or tcp.SrcPort == 8443 or (outbound and (udp.PayloadLength == 74 or udp.DstPort == 443 or udp.DstPort == 3478 or udp.DstPort == 3479 or udp.DstPort == 5349 or udp.DstPort == 19302 or (udp.DstPort >= 19294 and udp.DstPort <= 19344) or (udp.DstPort >= 50000 and udp.DstPort <= 50100))))";
         handle = WinDivertOpen(filter, WINDIVERT_LAYER_NETWORK, WINDIVERT_PRIORITY_HIGHEST, 0U);
         if (handle == INVALID_HANDLE_VALUE) {
             const DWORD code = GetLastError();
@@ -874,6 +880,7 @@ PacketEngineStats PacketEngine::stats() const noexcept {
     value.voice_udp_direct_requests = impl_->voice_udp_direct_requests.load(std::memory_order_relaxed);
     value.voice_udp_tunnel_requests = impl_->voice_udp_tunnel_requests.load(std::memory_order_relaxed);
     value.discord_ip_discovery_requests = impl_->discord_ip_discovery_requests.load(std::memory_order_relaxed);
+    value.discord_ip_discovery_other_ports = impl_->discord_ip_discovery_other_ports.load(std::memory_order_relaxed);
     value.voice_udp_decoys_sent = impl_->voice_udp_decoys_sent.load(std::memory_order_relaxed);
     value.voice_udp_decoy_failures = impl_->voice_udp_decoy_failures.load(std::memory_order_relaxed);
     value.passive_resets_dropped = impl_->passive_resets_dropped.load(std::memory_order_relaxed);
