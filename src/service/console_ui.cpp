@@ -46,6 +46,7 @@ void print_summary(const Json& response) {
                   << "  |  reinject failures: " << dpi.value("packet_send_failures", std::uint64_t{})
                   << "  |  split packets: " << dpi.value("packets_resegmented", std::uint64_t{})
                   << "  |  listed QUIC fallbacks: " << dpi.value("quic_udp_443_dropped", std::uint64_t{})
+                  << "  |  filtered passive resets: " << dpi.value("passive_resets_dropped", std::uint64_t{})
                   << "  |  VPN interfaces: " << dpi.value("tunnel_interfaces", std::uint64_t{}) << '\n'
                   << "  TLS ports inspected: " << dpi.value("tcp_tls_candidates_outbound", std::uint64_t{})
                   << "  (VPN: " << dpi.value("tcp_tls_candidates_tunnel", std::uint64_t{}) << ')'

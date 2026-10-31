@@ -28,6 +28,7 @@ struct PacketEngineStats {
     std::uint64_t voice_udp_requests{};
     std::uint64_t voice_udp_decoys_sent{};
     std::uint64_t voice_udp_decoy_failures{};
+    std::uint64_t passive_resets_dropped{};
     std::uint64_t tunnel_interfaces{};
     std::uint64_t strategies_changed{};
 };

@@ -6,6 +6,10 @@ The Russian registry hostname data is downloaded from [bol-van/rulist](https://g
 
 ScpDPI's own source is licensed under the repository's MIT license. WinDivert and the registry hostname data remain subject to their respective upstream terms; consult the linked repositories and the staged WinDivert license file when redistributing a build.
 
+## GoodbyeDPI behavior review
+
+The [official GoodbyeDPI repository](https://github.com/ValdikSS/GoodbyeDPI) and its [Apache-2.0 license](https://github.com/ValdikSS/GoodbyeDPI/blob/master/LICENSE) were reviewed for high-level behavior and provenance. The review informed an independently written, narrowly scoped IPv4 reset filter for active listed TLS connections. No GoodbyeDPI source, copied function, command preset, packet template, or domain list was added to ScpDPI.
+
 ## Independent packet-engine implementation
 
 The local `zapret-discord-youtube-1.10.3` package was reviewed for high-level behavior only: port and host selection, separate TCP and UDP handling, and the presence of distinct strategies for TLS, QUIC and voice-discovery traffic. ScpDPI's parser, host matcher, per-host strategy state, TCP segment construction and UDP discovery handling are implemented in this repository. No zapret source, batch command lines, binary payload templates or domain lists were copied into ScpDPI.

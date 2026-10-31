@@ -316,6 +316,7 @@ struct PacketEngine::Impl {
     std::atomic<std::uint64_t> voice_udp_requests{};
     std::atomic<std::uint64_t> voice_udp_decoys_sent{};
     std::atomic<std::uint64_t> voice_udp_decoy_failures{};
+    std::atomic<std::uint64_t> passive_resets_dropped{};
     std::atomic<std::uint64_t> tunnel_interfaces_count{};
     std::atomic<std::uint64_t> strategies_changed{};
 
@@ -396,17 +397,25 @@ struct PacketEngine::Impl {
         attempts.erase(attempt);
     }
 
-    void observe_inbound(const std::string& key, const ParsedPacket& packet) {
+    bool observe_inbound(const std::string& key, const ParsedPacket& packet) {
         const auto outgoing_key = reverse_key(key);
         const auto attempt = attempts.find(outgoing_key);
-        if (attempt == attempts.end()) return;
+        if (attempt == attempts.end()) return false;
         if (packet.tcp->Rst != 0U) {
+            // Russian access networks commonly inject an IPv4 TCP reset with
+            // IP ID 0 or 1. Only suppress that narrow signature when it matches
+            // a live ScpDPI-listed TLS attempt; unrelated resets pass through.
+            if (packet.ipv4 != nullptr && WinDivertHelperNtohs(packet.ipv4->Id) <= 1U) {
+                passive_resets_dropped.fetch_add(1U, std::memory_order_relaxed);
+                return true;
+            }
             fail_attempt(outgoing_key);
-            return;
+            return false;
         }
-        if (packet.payload_length == 0U || packet.payload == nullptr) return;
+        if (packet.payload_length == 0U || packet.payload == nullptr) return false;
         if (packet.payload[0] == 0x15U) fail_attempt(outgoing_key);
         else if (packet.payload[0] == 0x16U || packet.payload[0] == 0x17U) succeed_attempt(outgoing_key);
+        return false;
     }
 
     std::vector<BuiltTcpSegment> split_stream(const CapturedPacket& first, const PendingHello& hello,
@@ -680,11 +689,12 @@ struct PacketEngine::Impl {
         if (parsed.tcp == nullptr) { (void)send_packet(bytes, address); return; }
         if (address.Outbound == 0U) {
             const auto key = flow_key(parsed);
+            bool drop_passive_reset = false;
             if (!key.empty()) {
                 std::lock_guard lock(flow_mutex);
-                observe_inbound(key, parsed);
+                drop_passive_reset = observe_inbound(key, parsed);
             }
-            (void)send_packet(bytes, address);
+            if (!drop_passive_reset) (void)send_packet(bytes, address);
             return;
         }
         const auto destination_port = WinDivertHelperNtohs(parsed.tcp->DstPort);
@@ -837,6 +847,7 @@ PacketEngineStats PacketEngine::stats() const noexcept {
     value.voice_udp_requests = impl_->voice_udp_requests.load(std::memory_order_relaxed);
     value.voice_udp_decoys_sent = impl_->voice_udp_decoys_sent.load(std::memory_order_relaxed);
     value.voice_udp_decoy_failures = impl_->voice_udp_decoy_failures.load(std::memory_order_relaxed);
+    value.passive_resets_dropped = impl_->passive_resets_dropped.load(std::memory_order_relaxed);
     value.tunnel_interfaces = impl_->tunnel_interfaces_count.load(std::memory_order_relaxed);
     value.strategies_changed = impl_->strategies_changed.load(std::memory_order_relaxed);
     return value;

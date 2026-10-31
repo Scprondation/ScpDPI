@@ -117,14 +117,40 @@ public:
     Result<EngineSnapshot> refresh() {
         auto result = engine_.scan();
         if (result) {
-            std::lock_guard lock(mutex_);
-            latest_ = result.value();
-            has_latest_ = true;
-            spdlog::debug("Network scan completed: {} interfaces and {} routes", latest_.interfaces.size(), latest_.routes.size());
+            bool report_due = false;
+            bool report_dpi_enabled = false;
+            {
+                std::lock_guard lock(mutex_);
+                latest_ = result.value();
+                has_latest_ = true;
+                spdlog::debug("Network scan completed: {} interfaces and {} routes", latest_.interfaces.size(), latest_.routes.size());
+                const auto now = std::chrono::steady_clock::now();
+                if (now - last_diagnostic_log_ >= std::chrono::minutes(1)) {
+                    last_diagnostic_log_ = now;
+                    report_due = true;
+                    report_dpi_enabled = config_.dpi_enabled;
+                }
+            }
+            if (report_due) log_diagnostic_snapshot(result.value(), report_dpi_enabled);
         } else {
             spdlog::error("Network scan failed: {}", result.error().message);
         }
         return result;
+    }
+    void log_diagnostic_snapshot(const EngineSnapshot& snapshot, bool dpi_enabled) const {
+        const auto stats = dpi_.stats();
+        const auto dpi_error = dpi_.last_error();
+        spdlog::info("Diagnostic snapshot: interfaces={} routes={} vpn_candidates={} dpi_enabled={} dpi_running={} "
+                     "dpi_error={} packets={} tcp_tls_candidates={} tls_parsed={} tls_unlisted={} tls_timeouts={} listed_tls_matches={} "
+                     "split_packets={} split_failures={} send_failures={} passive_resets_dropped={} quic_fallbacks={} "
+                     "voice_discovery_requests={} udp_decoys_sent={} udp_decoys_failed={} tunnel_interfaces={} strategy_changes={}",
+                     snapshot.interfaces.size(), snapshot.routes.size(), snapshot.vpn_interfaces.size(),
+                     dpi_enabled, dpi_.running(), dpi_error, stats.packets_seen, stats.tcp_tls_candidates_outbound,
+                     stats.tls_hellos_parsed, stats.tls_hellos_unlisted, stats.tls_hellos_timed_out,
+                     stats.domains_matched, stats.packets_resegmented, stats.resegment_failures,
+                     stats.packet_send_failures, stats.passive_resets_dropped, stats.quic_udp_443_dropped,
+                     stats.voice_udp_requests, stats.voice_udp_decoys_sent, stats.voice_udp_decoy_failures,
+                     stats.tunnel_interfaces, stats.strategies_changed);
     }
     json handle(const IpcRequest& request) {
         if (request.command == "start" || request.command == "stop") {
@@ -220,6 +246,7 @@ public:
                             {"voice_udp_requests", stats.voice_udp_requests},
                             {"voice_udp_decoys_sent", stats.voice_udp_decoys_sent},
                             {"voice_udp_decoy_failures", stats.voice_udp_decoy_failures},
+                            {"passive_resets_dropped", stats.passive_resets_dropped},
                             {"tunnel_interfaces", stats.tunnel_interfaces},
                             {"strategies_changed", stats.strategies_changed}};
         const auto executable_path = current_executable_path_utf8();
@@ -239,6 +266,7 @@ private:
     mutable std::mutex mutex_;
     EngineSnapshot latest_;
     bool has_latest_{};
+    std::chrono::steady_clock::time_point last_diagnostic_log_{};
 };
 }
 

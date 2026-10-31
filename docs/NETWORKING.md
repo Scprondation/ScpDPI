@@ -14,6 +14,8 @@ The WinDivert archive and Russian registry domain data are pinned and SHA-256 ch
 
 If a site still does not load, check whether its hostname resolves correctly and whether the ISP block is DNS poisoning, IP blocking, throttling, or an application restriction. ScpDPI does not redirect DNS or tunnel traffic. Browser DNS-over-HTTPS or a separate VPN may be needed for those cases.
 
+After ScpDPI segments a TLS ClientHello for a listed host, it suppresses an inbound IPv4 TCP reset only when the reset belongs to that active connection attempt and its IP ID is 0 or 1, a common passive-DPI signature on some Russian networks. A suppressed reset leaves the attempt open for a real server response; other resets advance the existing per-host strategy and pass through. Resets outside that narrow match pass through. IPv6 resets and IPv4 resets with other IP IDs are not filtered. The count appears in `dpi status` and in periodic diagnostic log entries.
+
 ## Interface discovery
 
 - Windows: `GetAdaptersAddresses(AF_UNSPEC)` supplies names, description, state, MTU, MAC, type and assigned IPv4/IPv6 addresses.

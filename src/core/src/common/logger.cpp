@@ -1,5 +1,5 @@
 #include "scpdpi/common/logger.hpp"
-#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
@@ -10,7 +10,10 @@ Result<void> Logger::initialize(const std::filesystem::path& log_file, const std
         sinks.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
         if (file_enabled) {
             if (!log_file.parent_path().empty()) std::filesystem::create_directories(log_file.parent_path());
-            sinks.push_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file.string(), true));
+            constexpr std::size_t max_log_size = 5U * 1024U * 1024U;
+            constexpr std::size_t retained_log_files = 3U;
+            sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+                log_file.string(), max_log_size, retained_log_files));
         }
         auto logger = std::make_shared<spdlog::logger>("scpdpi", sinks.begin(), sinks.end());
         if (level == "trace") logger->set_level(spdlog::level::trace);
@@ -19,6 +22,9 @@ Result<void> Logger::initialize(const std::filesystem::path& log_file, const std
         else if (level == "warn") logger->set_level(spdlog::level::warn);
         else if (level == "error") logger->set_level(spdlog::level::err);
         else return Result<void>::failure({"Unsupported logging level: " + level, 0});
+        // The background service can run for days, so flush useful records as
+        // they are written instead of leaving the diagnostic file empty until exit.
+        logger->flush_on(spdlog::level::info);
         spdlog::set_default_logger(std::move(logger));
         return Result<void>::success();
     } catch (const spdlog::spdlog_ex& ex) {
