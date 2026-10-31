@@ -46,8 +46,10 @@ void print_summary(const Json& response) {
                   << "  |  reinject failures: " << dpi.value("packet_send_failures", std::uint64_t{})
                   << "  |  split packets: " << dpi.value("packets_resegmented", std::uint64_t{})
                   << "  |  Discord TLS matches: " << dpi.value("discord_tls_matches", std::uint64_t{})
+                  << "  |  YouTube TLS matches: " << dpi.value("youtube_tls_matches", std::uint64_t{})
                   << "  |  listed QUIC fallbacks: " << dpi.value("quic_udp_443_dropped", std::uint64_t{})
                   << "  (Discord: " << dpi.value("discord_quic_fallbacks", std::uint64_t{}) << ')'
+                  << "  (YouTube: " << dpi.value("youtube_quic_fallbacks", std::uint64_t{}) << ')'
                   << "  |  filtered passive resets: " << dpi.value("passive_resets_dropped", std::uint64_t{})
                   << "  |  Tunnel interfaces: " << dpi.value("tunnel_interfaces", std::uint64_t{}) << '\n'
                   << "  TLS ports inspected: " << dpi.value("tcp_tls_candidates_outbound", std::uint64_t{})

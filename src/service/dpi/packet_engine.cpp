@@ -313,10 +313,12 @@ struct PacketEngine::Impl {
     std::atomic<std::uint64_t> packets_resegmented{};
     std::atomic<std::uint64_t> domains_matched{};
     std::atomic<std::uint64_t> discord_tls_matches{};
+    std::atomic<std::uint64_t> youtube_tls_matches{};
     std::atomic<std::uint64_t> udp_443_candidates{};
     std::atomic<std::uint64_t> udp_443_tunnel_candidates{};
     std::atomic<std::uint64_t> quic_udp_443_dropped{};
     std::atomic<std::uint64_t> discord_quic_fallbacks{};
+    std::atomic<std::uint64_t> youtube_quic_fallbacks{};
     std::atomic<std::uint64_t> voice_udp_candidate_packets{};
     std::atomic<std::uint64_t> voice_udp_tunnel_candidate_packets{};
     std::atomic<std::uint64_t> voice_udp_requests{};
@@ -527,6 +529,8 @@ struct PacketEngine::Impl {
         domains_matched.fetch_add(1U, std::memory_order_relaxed);
         if (hosts.matches_discord(parsed_hello.hostname))
             discord_tls_matches.fetch_add(1U, std::memory_order_relaxed);
+        if (hosts.matches_youtube(parsed_hello.hostname))
+            youtube_tls_matches.fetch_add(1U, std::memory_order_relaxed);
         auto& state = strategies[parsed_hello.hostname];
         const std::size_t strategy = state.has_best ? state.best : state.next;
         const auto cuts = strategy_cuts(parsed_hello.sni_offset, parsed_hello.sni_length, hello.stream.size(), strategy);
@@ -668,6 +672,8 @@ struct PacketEngine::Impl {
                         quic_udp_443_dropped.fetch_add(1U, std::memory_order_relaxed);
                         if (hosts.matches_discord(*server_name))
                             discord_quic_fallbacks.fetch_add(1U, std::memory_order_relaxed);
+                        if (hosts.matches_youtube(*server_name))
+                            youtube_quic_fallbacks.fetch_add(1U, std::memory_order_relaxed);
                     } else
                         (void)send_packet(bytes, address);
                     return;
@@ -783,7 +789,7 @@ struct PacketEngine::Impl {
         const auto list_result = hosts.load(runtime_directory);
         if (!list_result) { set_error(list_result.error().message); return list_result; }
         refresh_tunnels();
-        constexpr char filter[] = "!impostor and !loopback and (tcp.DstPort == 80 or tcp.SrcPort == 80 or tcp.DstPort == 443 or tcp.SrcPort == 443 or tcp.DstPort == 2053 or tcp.SrcPort == 2053 or tcp.DstPort == 2083 or tcp.SrcPort == 2083 or tcp.DstPort == 2087 or tcp.SrcPort == 2087 or tcp.DstPort == 2096 or tcp.SrcPort == 2096 or tcp.DstPort == 8443 or tcp.SrcPort == 8443 or (outbound and (udp.PayloadLength == 74 or udp.DstPort == 443 or udp.DstPort == 3478 or udp.DstPort == 3479 or udp.DstPort == 5349 or udp.DstPort == 19302 or (udp.DstPort >= 19294 and udp.DstPort <= 19344) or (udp.DstPort >= 50000 and udp.DstPort <= 50100))))";
+        constexpr char filter[] = "!impostor and !loopback and (tcp.DstPort == 80 or tcp.SrcPort == 80 or tcp.DstPort == 443 or tcp.SrcPort == 443 or tcp.DstPort == 2053 or tcp.SrcPort == 2053 or tcp.DstPort == 2083 or tcp.SrcPort == 2083 or tcp.DstPort == 2087 or tcp.SrcPort == 2087 or tcp.DstPort == 2096 or tcp.SrcPort == 2096 or tcp.DstPort == 8443 or tcp.SrcPort == 8443 or (outbound and ((udp.PayloadLength == 74 and udp.Payload[0] == 0 and udp.Payload[1] == 1 and udp.Payload[2] == 0 and udp.Payload[3] == 70 and udp.Payload32[1] != 0) or udp.DstPort == 443 or udp.DstPort == 3478 or udp.DstPort == 3479 or udp.DstPort == 5349 or udp.DstPort == 19302 or (udp.DstPort >= 19294 and udp.DstPort <= 19344) or (udp.DstPort >= 50000 and udp.DstPort <= 50100))))";
         handle = WinDivertOpen(filter, WINDIVERT_LAYER_NETWORK, WINDIVERT_PRIORITY_HIGHEST, 0U);
         if (handle == INVALID_HANDLE_VALUE) {
             const DWORD code = GetLastError();
@@ -870,10 +876,12 @@ PacketEngineStats PacketEngine::stats() const noexcept {
     value.packets_resegmented = impl_->packets_resegmented.load(std::memory_order_relaxed);
     value.domains_matched = impl_->domains_matched.load(std::memory_order_relaxed);
     value.discord_tls_matches = impl_->discord_tls_matches.load(std::memory_order_relaxed);
+    value.youtube_tls_matches = impl_->youtube_tls_matches.load(std::memory_order_relaxed);
     value.udp_443_candidates = impl_->udp_443_candidates.load(std::memory_order_relaxed);
     value.udp_443_tunnel_candidates = impl_->udp_443_tunnel_candidates.load(std::memory_order_relaxed);
     value.quic_udp_443_dropped = impl_->quic_udp_443_dropped.load(std::memory_order_relaxed);
     value.discord_quic_fallbacks = impl_->discord_quic_fallbacks.load(std::memory_order_relaxed);
+    value.youtube_quic_fallbacks = impl_->youtube_quic_fallbacks.load(std::memory_order_relaxed);
     value.voice_udp_candidate_packets = impl_->voice_udp_candidate_packets.load(std::memory_order_relaxed);
     value.voice_udp_tunnel_candidate_packets = impl_->voice_udp_tunnel_candidate_packets.load(std::memory_order_relaxed);
     value.voice_udp_requests = impl_->voice_udp_requests.load(std::memory_order_relaxed);

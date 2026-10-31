@@ -142,9 +142,9 @@ public:
         const auto dpi_error = dpi_.last_error();
         spdlog::info("Diagnostic snapshot: interfaces={} routes={} vpn_candidates={} dpi_enabled={} dpi_running={} "
                      "dpi_error={} packets={} tcp_tls_candidates={} tcp_tls_tunnel_candidates={} tls_parsed={} tls_unlisted={} "
-                     "tls_timeouts={} listed_tls_matches={} discord_tls_matches={} split_packets={} split_failures={} "
+                     "tls_timeouts={} listed_tls_matches={} discord_tls_matches={} youtube_tls_matches={} split_packets={} split_failures={} "
                      "send_failures={} passive_resets_dropped={} udp443_candidates={} udp443_tunnel_candidates={} "
-                     "quic_fallbacks={} discord_quic_fallbacks={} voice_udp_port_candidates={} voice_udp_tunnel_candidates={} "
+                     "quic_fallbacks={} discord_quic_fallbacks={} youtube_quic_fallbacks={} voice_udp_port_candidates={} voice_udp_tunnel_candidates={} "
                      "voice_discovery_requests={} voice_discovery_direct={} voice_discovery_tunnel={} discord_ip_discovery={} "
                      "discord_ip_discovery_other_ports={} "
                      "udp_decoys_sent={} udp_decoys_failed={} tunnel_interfaces={} strategy_changes={}",
@@ -152,9 +152,11 @@ public:
                      dpi_enabled, dpi_.running(), dpi_error, stats.packets_seen, stats.tcp_tls_candidates_outbound,
                      stats.tcp_tls_candidates_tunnel, stats.tls_hellos_parsed, stats.tls_hellos_unlisted,
                      stats.tls_hellos_timed_out, stats.domains_matched, stats.discord_tls_matches,
+                     stats.youtube_tls_matches,
                      stats.packets_resegmented, stats.resegment_failures, stats.packet_send_failures,
                      stats.passive_resets_dropped, stats.udp_443_candidates, stats.udp_443_tunnel_candidates,
-                     stats.quic_udp_443_dropped, stats.discord_quic_fallbacks, stats.voice_udp_candidate_packets,
+                     stats.quic_udp_443_dropped, stats.discord_quic_fallbacks, stats.youtube_quic_fallbacks,
+                     stats.voice_udp_candidate_packets,
                      stats.voice_udp_tunnel_candidate_packets, stats.voice_udp_requests,
                      stats.voice_udp_direct_requests, stats.voice_udp_tunnel_requests,
                      stats.discord_ip_discovery_requests, stats.discord_ip_discovery_other_ports,
@@ -252,10 +254,12 @@ public:
                             {"resegment_failures", stats.resegment_failures}, {"packet_send_failures", stats.packet_send_failures},
                             {"packets_resegmented", stats.packets_resegmented}, {"domains_matched", stats.domains_matched},
                             {"discord_tls_matches", stats.discord_tls_matches},
+                            {"youtube_tls_matches", stats.youtube_tls_matches},
                             {"udp_443_candidates", stats.udp_443_candidates},
                             {"udp_443_tunnel_candidates", stats.udp_443_tunnel_candidates},
                             {"quic_udp_443_dropped", stats.quic_udp_443_dropped},
                             {"discord_quic_fallbacks", stats.discord_quic_fallbacks},
+                            {"youtube_quic_fallbacks", stats.youtube_quic_fallbacks},
                             {"voice_udp_candidate_packets", stats.voice_udp_candidate_packets},
                             {"voice_udp_tunnel_candidate_packets", stats.voice_udp_tunnel_candidate_packets},
                             {"voice_udp_requests", stats.voice_udp_requests},

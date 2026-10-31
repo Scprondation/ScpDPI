@@ -54,17 +54,19 @@ bool matches_host_set(const std::unordered_set<std::string>& hosts, std::string_
 Result<void> HostLists::load(const std::filesystem::path& directory) {
     hosts_.clear();
     discord_hosts_.clear();
+    youtube_hosts_.clear();
     const auto registry = load_file(directory / L"russia-registry-domains.txt", true);
     if (!registry) return registry;
-    const auto youtube = load_file(directory / L"russia-youtube.txt", true);
+    const auto youtube = load_file(directory / L"russia-youtube.txt", true, &youtube_hosts_);
     if (!youtube) return youtube;
-    const auto discord = load_file(directory / L"russia-discord.txt", true, true);
+    const auto discord = load_file(directory / L"russia-discord.txt", true, &discord_hosts_);
     if (!discord) return discord;
     if (hosts_.empty()) return Result<void>::failure({"The Russian DPI domain lists are empty", 0});
     return Result<void>::success();
 }
 
-Result<void> HostLists::load_file(const std::filesystem::path& path, bool required, bool discord_list) {
+Result<void> HostLists::load_file(const std::filesystem::path& path, bool required,
+                                  std::unordered_set<std::string>* category_hosts) {
     std::ifstream input(path, std::ios::binary);
     if (!input) {
         if (!required) return Result<void>::success();
@@ -85,7 +87,7 @@ Result<void> HostLists::load_file(const std::filesystem::path& path, bool requir
         std::transform(hostname.begin(), hostname.end(), hostname.begin(), [](unsigned char c) {
             return static_cast<char>(std::tolower(c));
         });
-        if (discord_list) discord_hosts_.insert(hostname);
+        if (category_hosts != nullptr) category_hosts->insert(hostname);
         hosts_.insert(std::move(hostname));
         if (hosts_.size() > max_unique_hosts)
             return Result<void>::failure({"The Russian DPI host list exceeds the 1000000-domain safety limit", 0});
@@ -100,6 +102,10 @@ bool HostLists::matches(std::string_view hostname) const {
 
 bool HostLists::matches_discord(std::string_view hostname) const {
     return matches_host_set(discord_hosts_, hostname);
+}
+
+bool HostLists::matches_youtube(std::string_view hostname) const {
+    return matches_host_set(youtube_hosts_, hostname);
 }
 
 } // namespace scpdpi::dpi

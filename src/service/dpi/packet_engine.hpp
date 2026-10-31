@@ -25,10 +25,12 @@ struct PacketEngineStats {
     std::uint64_t packets_resegmented{};
     std::uint64_t domains_matched{};
     std::uint64_t discord_tls_matches{};
+    std::uint64_t youtube_tls_matches{};
     std::uint64_t udp_443_candidates{};
     std::uint64_t udp_443_tunnel_candidates{};
     std::uint64_t quic_udp_443_dropped{};
     std::uint64_t discord_quic_fallbacks{};
+    std::uint64_t youtube_quic_fallbacks{};
     std::uint64_t voice_udp_candidate_packets{};
     std::uint64_t voice_udp_tunnel_candidate_packets{};
     std::uint64_t voice_udp_requests{};
