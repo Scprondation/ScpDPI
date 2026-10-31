@@ -139,6 +139,20 @@ Verbatim new snapshots supplied by the user:
 - `git diff --check` reported no whitespace errors. No tests and no live browser/network verification were run.
 - The new per-site outcome counters only collect evidence after this diagnostic build is installed and YouTube/Discord traffic is tried. They do not yet establish the cause of the YouTube regression or prove that a future change restores it.
 
+## 2026-10-31 19:47 — Browser voice works; desktop app voice does not
+
+The user reports that Discord voice now works in the browser, while voice in the desktop application still does not. The supplied file contains the 19:47:38 service startup snapshot from the `c6c1391` build, with zero traffic and zero voice/TLS counters. It ends before a later periodic snapshot, so it contains no attempted desktop-app session and cannot identify what differs between the two clients.
+
+The packet engine uses a system-wide WinDivert network filter; the current stats do not identify the originating process. It can count matching TLS and voice-discovery packets, but it does not tunnel arbitrary UDP voice media. Thus browser success shows that at least one client/network path can connect, while the desktop-app result could still involve an app-specific firewall/VPN rule or audio-device issue; these are possibilities, not established causes. Discord's support article recommends checking the firewall/antivirus allowlist and confirms VPN voice requires UDP support.
+
+Next evidence needed: with the `c6c1391` build running, attempt one desktop-app voice connection for at least one minute and capture the following diagnostic snapshot. The key counters are `voice_discovery_requests`, `discord_ip_discovery`, `udp_decoys_sent`, `voice_udp_tunnel_candidate_packets`, and the Discord TLS outcomes. Also clarify whether the app hangs at RTC/Connecting or joins with no audio; those symptoms point to different paths.
+
+Verbatim new startup line supplied by the user:
+
+```text
+[2026-10-31 19:47:38.238] [scpdpi] [info] Diagnostic snapshot: interfaces=3 routes=23 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=0 tcp_tls_candidates=0 tcp_tls_tunnel_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 discord_tls_matches=0 youtube_tls_matches=0 discord_tls_rx=0 discord_tls_alerts=0 discord_tls_resets=0 discord_tls_response_timeouts=0 youtube_tls_rx=0 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=0 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=1 strategy_changes=0
+```
+
 ## References
 
 - [GoodbyeDPI official repository and behavior description](https://github.com/ValdikSS/GoodbyeDPI)
