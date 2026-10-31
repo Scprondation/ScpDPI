@@ -48,6 +48,10 @@ Result<AppConfig> ConfigStore::load(const std::filesystem::path& path) const {
                 cfg.log_level != "warn" && cfg.log_level != "error")
                 return Result<AppConfig>::failure({"Unsupported logging level: " + cfg.log_level, 0});
         }
+        if (const auto it = doc.find("dpi"); it != doc.end()) {
+            if (!it->is_object()) return Result<AppConfig>::failure({"dpi must be an object", 0});
+            cfg.dpi_enabled = it->value("enabled", cfg.dpi_enabled);
+        }
         return Result<AppConfig>::success(std::move(cfg));
     } catch (const json::exception& ex) {
         return Result<AppConfig>::failure({std::string("Invalid configuration JSON: ") + ex.what(), 0});
@@ -79,6 +83,7 @@ Result<void> ConfigStore::save(const AppConfig& cfg, const std::filesystem::path
             {"engine", {{"enabled", cfg.engine_enabled}, {"scan_interval_ms", cfg.scan_interval_ms}}},
             {"classification", {{"unknown_action", cfg.unknown_action}}},
             {"profile", cfg.profile},
+            {"dpi", {{"enabled", cfg.dpi_enabled}}},
             {"logging", {{"level", cfg.log_level}, {"file_enabled", cfg.file_logging}}}
         };
         {

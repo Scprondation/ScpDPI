@@ -1,4 +1,5 @@
 #include "service_client.hpp"
+#include "autostart.hpp"
 
 #include <algorithm>
 #include <array>
@@ -32,7 +33,7 @@ Json request_error(std::string message, int native_code = 0) {
 
 #ifdef _WIN32
 Json exchange(const std::string& wire) {
-    constexpr wchar_t endpoint[] = L"\\\\.\\pipe\\ScpDPI.v1";
+    constexpr wchar_t endpoint[] = L"\\\\.\\pipe\\ScpDPI.v2";
     if (!WaitNamedPipeW(endpoint, 1500U))
         return request_error("ScpDPI background service is not responding", static_cast<int>(GetLastError()));
     HANDLE pipe = CreateFileW(endpoint, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -123,18 +124,8 @@ Json request_service(const std::string& command, const Json& payload) {
 Result<void> ensure_background_service(const std::filesystem::path& install_dir) {
 #ifdef _WIN32
     if (request_service("status", Json::object()).value("ok", false)) return Result<void>::success();
-    const auto helper = install_dir / L"scpdpi_autostart.exe";
-    if (!std::filesystem::is_regular_file(helper))
-        return Result<void>::failure({"ScpDPI background launcher is missing from the per-user install", 0});
-    std::wstring command = L"\"" + helper.wstring() + L"\"";
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    if (!CreateProcessW(helper.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
-                        nullptr, install_dir.c_str(), &startup, &process))
-        return Result<void>::failure({"Could not start the ScpDPI background process", static_cast<int>(GetLastError())});
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
+    const auto task = ensure_elevated_background_task(install_dir);
+    if (!task) return task;
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (std::chrono::steady_clock::now() < deadline) {

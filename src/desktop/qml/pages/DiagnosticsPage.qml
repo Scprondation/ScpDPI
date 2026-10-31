@@ -13,7 +13,7 @@ Flickable {
             ColumnLayout {
                 Layout.fillWidth: true; spacing: 3
                 Label { text: "Diagnostic findings"; color: Palette.textPrimary; font.pixelSize: 15; font.weight: Font.DemiBold }
-                Label { text: "ScpDPI reports potential issues and never changes network settings."; color: Palette.textSecondary; font.pixelSize: 11 }
+                Label { text: "ScpDPI reports potential issues; DPI packet processing is controlled separately."; color: Palette.textSecondary; font.pixelSize: 11 }
             }
             Button { text: "Run scan"; onClicked: dashboard.refresh(); flat: true; contentItem: Text { text: parent.text; color: Palette.accent; font.pixelSize: 11 } }
         }

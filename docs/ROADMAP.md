@@ -2,9 +2,9 @@
 
 ## 0.1.0
 
-- Read-only native interface and route inventory.
+- Native interface and route inventory.
 - Tunnel evidence, route-based classification, safe policy defaults, diagnostics, configuration, telemetry, desktop and local IPC foundation.
-- No packet capture or network changes.
+- Windows DPI processing through a pinned GoodbyeDPI/WinDivert backend, controlled from the console.
 
 ## 0.2.0 candidates
 
@@ -17,4 +17,4 @@
 - Add CI build/test jobs for MSVC, GCC, Clang, Qt and Linux/Windows.
 - Render and review the QML app at common desktop sizes and add accessibility/keyboard tests.
 
-Packet interception and automatic route/DNS changes require a separate threat model and explicit product review before implementation.
+Linux DPI processing, backend health reporting, an installer/release package, Windows runtime integration checks and user-configurable target lists remain future work. Automatic DNS, route or MTU changes remain out of scope.

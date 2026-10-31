@@ -8,6 +8,9 @@
     "unknown_action": "bypass"
   },
   "profile": "default",
+  "dpi": {
+    "enabled": true
+  },
   "logging": {
     "level": "info",
     "file_enabled": true

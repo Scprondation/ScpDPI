@@ -2,6 +2,7 @@
 #include "console_ui.hpp"
 #include "autostart.hpp"
 #include "service_client.hpp"
+#include "dpi_backend.hpp"
 #include "scpdpi/config/config.hpp"
 #include "scpdpi/common/logger.hpp"
 #include "scpdpi/engine/core_engine.hpp"
@@ -81,6 +82,13 @@ public:
         const auto logging = Logger::initialize(config_path_.parent_path() / "scpdpi.log", config_.log_level, config_.file_logging);
         if (!logging) std::cerr << "ScpDPI logger initialization failed: " << logging.error().message << '\n';
         else spdlog::info("ScpDPI service initialized with profile {}", config_.profile);
+#ifdef _WIN32
+        if (config_.dpi_enabled) {
+            const auto started = dpi_.start();
+            if (!started) spdlog::error("DPI packet processor failed to start: {}", started.error().message);
+            else spdlog::info("DPI packet processor started");
+        }
+#endif
         running_.store(config_.engine_enabled);
         (void)refresh();
     }
@@ -113,9 +121,33 @@ public:
             if (!saved) return {{"ok", false}, {"error", saved.error().message}};
             return {{"ok", true}, {"profile", config_.profile}};
         }
+        if (request.command == "enable_dpi") {
+            std::lock_guard lock(mutex_);
+            config_.dpi_enabled = true;
+            const auto saved = config_store_.save(config_, config_path_);
+            if (!saved) return {{"ok", false}, {"error", saved.error().message}};
+            const auto started = dpi_.start();
+            if (!started) return {{"ok", false}, {"error", started.error().message}};
+            spdlog::info("DPI packet processor enabled");
+            return {{"ok", true}, {"dpi", {{"enabled", true}, {"running", dpi_.running()}}}};
+        }
+        if (request.command == "disable_dpi") {
+            std::lock_guard lock(mutex_);
+            config_.dpi_enabled = false;
+            const auto saved = config_store_.save(config_, config_path_);
+            if (!saved) return {{"ok", false}, {"error", saved.error().message}};
+            const auto stopped = dpi_.stop();
+            if (!stopped) return {{"ok", false}, {"error", stopped.error().message}};
+            spdlog::info("DPI packet processor disabled");
+            return {{"ok", true}, {"dpi", {{"enabled", false}, {"running", false}}}};
+        }
         if (request.command == "reload_config") {
             auto loaded = config_store_.load(config_path_);
             if (!loaded) return {{"ok", false}, {"error", loaded.error().message}};
+#ifdef _WIN32
+            const auto dpi_result = loaded.value().dpi_enabled ? dpi_.start() : dpi_.stop();
+            if (!dpi_result) return {{"ok", false}, {"error", dpi_result.error().message}};
+#endif
             { std::lock_guard lock(mutex_); config_ = loaded.value(); }
             running_.store(loaded.value().engine_enabled);
             return status();
@@ -134,7 +166,9 @@ public:
             auto result = refresh();
             if (!result) return {{"ok", false}, {"error", result.error().message}};
             std::lock_guard lock(mutex_);
-            return {{"ok", true}, {"running", running_.load()}, {"profile", config_.profile}, {"snapshot", snapshot_json(result.value())}};
+            return {{"ok", true}, {"api_version", 2}, {"running", running_.load()}, {"profile", config_.profile},
+                    {"dpi", {{"enabled", config_.dpi_enabled}, {"running", dpi_.running()}, {"message", dpi_.last_error()}}},
+                    {"snapshot", snapshot_json(result.value())}};
         }
         return status();
     }
@@ -143,9 +177,11 @@ public:
         std::lock_guard lock(mutex_);
         return config_.scan_interval_ms;
     }
-    json status() const {
+    json status() {
         std::lock_guard lock(mutex_);
-        json response{{"ok", true}, {"running", running_.load()}, {"profile", config_.profile}};
+        json response{{"ok", true}, {"api_version", 2}, {"running", running_.load()}, {"profile", config_.profile}};
+        response["dpi"] = {{"enabled", config_.dpi_enabled}, {"running", dpi_.running()},
+                            {"message", dpi_.last_error()}};
         if (has_latest_) response["snapshot"] = snapshot_json(latest_);
         else response["snapshot"] = nullptr;
         return response;
@@ -156,6 +192,7 @@ private:
     std::filesystem::path config_path_;
     ConfigStore config_store_;
     AppConfig config_;
+    DpiBackend dpi_;
     std::atomic<bool> running_{true};
     mutable std::mutex mutex_;
     EngineSnapshot latest_;
@@ -171,6 +208,7 @@ int main(int argc, char** argv) {
         const bool enable_startup = argc > 1 && std::string_view(argv[1]) == "--enable-autostart";
         const bool remove_startup = argc > 1 && std::string_view(argv[1]) == "--remove-autostart";
         const bool help = argc > 1 && std::string_view(argv[1]) == "--help";
+        const bool install_background_task = argc > 1 && std::string_view(argv[1]) == "--install-background-task";
         if (help) {
             std::cout << "Usage: scpdpi_service.exe [--console | --snapshot | --serve | --enable-autostart | --remove-autostart]\n"
                          "  no option  Open the interactive console\n"
@@ -178,7 +216,13 @@ int main(int argc, char** argv) {
                          "  --snapshot Print one JSON network snapshot\n"
                          "  --serve    Run the local IPC background service\n"
                          "  --enable-autostart  Enable launch when the current Windows user signs in\n"
-                         "  --remove-autostart  Disable launch when the current Windows user signs in\n";
+                         "  --remove-autostart  Disable launch when the current Windows user signs in\n"
+                         "  dpi on|off|status   Control Windows DPI packet processing in the console\n";
+            return 0;
+        }
+        if (install_background_task) {
+            const auto installed = scpdpi::install_elevated_background_task();
+            if (!installed) { std::cerr << installed.error().message << '\n'; return 1; }
             return 0;
         }
         if (remove_startup) {

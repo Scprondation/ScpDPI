@@ -42,6 +42,6 @@ Flickable {
                 }
             }
         }
-        Label { text: "Policies describe inspection decisions only. ScpDPI 0.1.0 does not intercept or alter packets, DNS, routes or MTU."; color: Palette.textSecondary; font.pixelSize: 11; wrapMode: Text.Wrap; width: parent.width }
+        Label { text: "Profiles control route labels and diagnostics. The Windows DPI processor has a separate on/off setting and does not change DNS, routes or MTU."; color: Palette.textSecondary; font.pixelSize: 11; wrapMode: Text.Wrap; width: parent.width }
     }
 }

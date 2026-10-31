@@ -12,7 +12,8 @@ Result<IpcRequest> parse_ipc_request(std::string_view message) {
         const auto command = json["command"].get<std::string>();
         if (command != "status" && command != "scan" && command != "start" && command != "stop" &&
             command != "set_profile" && command != "reload_config" &&
-            command != "disable_autostart" && command != "enable_autostart")
+            command != "disable_autostart" && command != "enable_autostart" &&
+            command != "enable_dpi" && command != "disable_dpi")
             return Result<IpcRequest>::failure({"Unsupported IPC command", 0});
         const auto payload = json.value("payload", nlohmann::json::object());
         if (!payload.is_object()) return Result<IpcRequest>::failure({"IPC payload must be an object", 0});

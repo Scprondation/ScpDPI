@@ -15,7 +15,7 @@
 
 namespace scpdpi {
 Result<void> IpcServer::run(std::stop_token stop, const Handler& handler) const {
-    constexpr wchar_t pipe_name[] = L"\\\\.\\pipe\\ScpDPI.v1";
+    constexpr wchar_t pipe_name[] = L"\\\\.\\pipe\\ScpDPI.v2";
     HANDLE token = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
         return Result<void>::failure({"Could not inspect the service user for IPC security", static_cast<int>(GetLastError())});

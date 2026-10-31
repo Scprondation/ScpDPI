@@ -19,11 +19,13 @@ Linux RTNETLINK                   │
 5. `Diagnostics` reports observable conditions and potential conflicts. It does not remediate them.
 6. `TelemetryCollector` records aggregate counts and scan duration only.
 
-The desktop calls the Core API and only presents its results. It does not call IP Helper, getifaddrs or RTNETLINK itself. The service shares the same Core library and exposes a narrow command protocol (`status`, `scan`, `start`, `stop`, `set_profile`, `reload_config`). IPC payloads are JSON, capped at 16 KiB, and validated against an allowlist.
+The desktop calls the Core API and only presents its results. It does not call IP Helper, getifaddrs or RTNETLINK itself. The service shares the same Core library and exposes a narrow command protocol (`status`, `scan`, `start`, `stop`, `set_profile`, `reload_config`, `enable_dpi`, `disable_dpi`, `enable_autostart`, `disable_autostart`). IPC payloads are JSON, capped at 16 KiB, and validated against an allowlist.
+
+On Windows the service also supervises the pinned GoodbyeDPI runtime for selected hostnames. Its WinDivert driver processes packet flows outside the Qt-free Core. The elevated task and runtime live under Program Files; the interactive console uses a one-time UAC install and a versioned local pipe. The per-user config controls the DPI child and scanner separately.
 
 ## State and threading
 
-Provider objects are injected as `shared_ptr<const ...>` and are stateless. The service runs periodic scans on a `std::jthread`; the IPC handler only supports fixed operations. Configuration and snapshots are copied at boundaries. No route mutation API is present.
+Provider objects are injected as `shared_ptr<const ...>` and are stateless. The service runs periodic scans on a `std::jthread`; the IPC handler only supports fixed operations. Configuration and snapshots are copied at boundaries. ScpDPI does not change routes, DNS servers or MTU.
 
 ## Current limits
 

@@ -21,8 +21,8 @@ Flickable {
             width: parent.width; height: 65; radius: 12; color: Palette.card; border.width: 1; border.color: Palette.border
             RowLayout {
                 anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16
-                ColumnLayout { Layout.fillWidth: true; spacing: 3; Label { text: "Network changes"; color: Palette.textPrimary; font.pixelSize: 12 }; Label { text: "Routes, DNS, MTU and packets are never modified"; color: Palette.textSecondary; font.pixelSize: 10 } }
-                Label { text: "Read only"; color: Palette.accent; font.pixelSize: 12; font.weight: Font.Medium }
+                ColumnLayout { Layout.fillWidth: true; spacing: 3; Label { text: "DPI processing"; color: Palette.textPrimary; font.pixelSize: 12 }; Label { text: "Selected Windows connections are processed; DNS, routes and MTU stay unchanged"; color: Palette.textSecondary; font.pixelSize: 10 } }
+                Label { text: "Windows"; color: Palette.accent; font.pixelSize: 12; font.weight: Font.Medium }
             }
         }
         Rectangle {

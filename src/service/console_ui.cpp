@@ -27,6 +27,11 @@ void print_summary(const Json& response) {
     }
     std::cout << "Core: " << (response.value("running", false) ? "running" : "stopped")
               << "  |  Profile: " << response.value("profile", std::string("default")) << '\n';
+    const auto dpi = response.value("dpi", Json::object());
+    std::cout << "DPI: " << (dpi.value("running", false) ? "running" : "stopped")
+              << (dpi.value("enabled", false) ? "  |  enabled" : "  |  disabled") << '\n';
+    if (!dpi.value("message", std::string{}).empty())
+        std::cout << "  " << dpi.value("message", std::string{}) << '\n';
     const auto snapshot = response.value("snapshot", Json::object());
     if (!snapshot.is_object()) {
         std::cout << "No network snapshot is available yet.\n";
@@ -120,6 +125,7 @@ void print_help() {
                  "  profile <name>         Select default, vpn-safe, diagnostic, or custom\n"
                  "  start | stop           Start or stop periodic scans\n"
                  "  autostart on | off     Enable or disable launch when you sign in to Windows\n"
+                 "  dpi on | off | status  Start, stop, or check DPI packet processing\n"
                  "  help                   Show this list\n"
                  "  quit                   Exit the console\n";
 }
@@ -143,9 +149,9 @@ void print_report(const ConsoleUiCallbacks& callbacks, std::string_view section)
 } // namespace
 
 int run_console(const ConsoleUiCallbacks& callbacks) {
-    std::cout << "ScpDPI 0.1.0 — read-only network console\n";
+    std::cout << "ScpDPI 0.1.0 — network console and DPI processor\n";
     print_summary(request_snapshot(callbacks, "status"));
-    std::cout << "Type 'help' for commands. Network settings are never changed by this version.\n\n";
+    std::cout << "Type 'help' for commands. First run needs one-time administrator approval.\n\n";
 
     std::string line;
     while (std::cout << "scpdpi> " && std::getline(std::cin, line)) {
@@ -198,6 +204,20 @@ int run_console(const ConsoleUiCallbacks& callbacks) {
             if (!response.value("ok", false)) print_error(response);
             else if (argument == "on") std::cout << "Windows autostart enabled.\n";
             else std::cout << "Windows autostart disabled. ScpDPI keeps running until Windows shuts down.\n";
+            continue;
+        }
+        if (command == "dpi") {
+            if (argument == "status") {
+                print_summary(request_snapshot(callbacks, "status"));
+                continue;
+            }
+            if (argument != "on" && argument != "off") {
+                std::cout << "Use 'dpi on', 'dpi off', or 'dpi status'.\n";
+                continue;
+            }
+            const auto response = callbacks.request(argument == "on" ? "enable_dpi" : "disable_dpi", Json::object());
+            if (!response.value("ok", false)) print_error(response);
+            else std::cout << "DPI packet processing " << (argument == "on" ? "enabled" : "disabled") << ".\n";
             continue;
         }
         std::cout << "Unknown command. Type 'help' to see available commands.\n";

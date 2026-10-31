@@ -14,7 +14,7 @@ ColumnLayout {
             Label { text: "Version 0.1.0 · Network insight"; color: Palette.textSecondary; font.pixelSize: 11; anchors.horizontalCenter: parent.horizontalCenter }
         }
     }
-    Label { text: "ScpDPI reads interface and route metadata through native operating system APIs. It is designed to work alongside existing VPN clients without changing network behavior."; color: Palette.textSecondary; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
-    Label { text: "The 0.1.0 release does not capture packets, alter DNS or routes, adjust MTU, or identify proxy protocols from encrypted traffic."; color: Palette.textSecondary; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
+    Label { text: "ScpDPI reads interface and route metadata and can process selected Windows connections to work around DPI blocks."; color: Palette.textSecondary; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
+    Label { text: "Windows packet processing needs one-time administrator approval. ScpDPI does not create a VPN or change DNS servers, routes or MTU."; color: Palette.textSecondary; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
     Item { Layout.fillHeight: true }
 }

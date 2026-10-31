@@ -5,6 +5,7 @@
 - CMake 3.24 or later and Ninja.
 - C++20 compiler: Visual Studio 2022/2026 MSVC, GCC 11+, or Clang 14+.
 - vcpkg with `VCPKG_ROOT` set. The base manifest installs nlohmann/json, spdlog and GoogleTest.
+- Windows builds download the pinned 1.1 MB GoodbyeDPI archive from its official GitHub release and verify its SHA-256 before staging the runtime.
 - Qt 6 Quick and QML tooling are needed only for the optional desktop target. The normal CMake configuration and `windows-console-*` presets build Core, Service and tests without Qt.
 
 ## Windows 10/11 x64
@@ -30,7 +31,7 @@ ctest --preset windows-console-debug
 
 For Release, use `windows-console-release`. The executable is `out\build\windows-console-debug\src\service\scpdpi_service.exe`; run it directly or pass `--console` for the interactive interface. The `scpdpi_autostart.exe` helper is built alongside it.
 
-To run the interactive console without Qt, build the Core and Service targets, then start `scpdpi_service.exe`. Its first Windows launch installs a per-user copy and registers a current-user startup entry. The helper starts the scanner without opening a window; closing the console leaves the scanner running. Type `autostart on` or `autostart off` in the console, or run `scpdpi_service.exe --enable-autostart` / `--remove-autostart` to change sign-in startup. These operations do not require administrator privileges.
+To run the interactive console without Qt, build the Core and Service targets, then start `scpdpi_service.exe`. Its first Windows launch asks for one-time administrator approval, installs protected runtime files under `%ProgramFiles%\ScpDPI`, then registers a hidden elevated task for the current user's sign-in. The task starts the scanner and DPI processor; closing the console leaves them running. Type `autostart on` or `autostart off` to enable or disable the next sign-in trigger, and `dpi on`, `dpi off` or `dpi status` to control packet processing.
 
 Use `scpdpi_service.exe --snapshot` for a one-time JSON report. Linux automatic startup is deferred; its console currently runs in the foreground.
 
@@ -64,7 +65,8 @@ For Clang, set `CMAKE_CXX_COMPILER=clang++` at configure time in a separate buil
 
 - `CMAKE_TOOLCHAIN_FILE` missing: check that `VCPKG_ROOT` points to a vcpkg checkout.
 - Qt target unavailable: install the manifest dependencies and check that vcpkg selected a triplet with Qt Quick/QML.
-- Linux route dump permission: route and interface reads should work as the current user; ScpDPI does not need to elevate itself.
+- Linux route dump permission: route and interface reads should work as the current user; Linux DPI processing is not implemented.
+- Windows DPI activation: approve the UAC prompt once. If the prompt is cancelled, ScpDPI cannot load the WinDivert packet driver.
 - Native platform code has only been verified when the corresponding build is run on that OS. Do not interpret a generated build directory or successful configure as a completed cross-platform build.
 
 ## Verification status

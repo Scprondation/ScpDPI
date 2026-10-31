@@ -1,7 +1,6 @@
 #include "autostart.hpp"
 
 #include <array>
-#include <fstream>
 #include <string>
 #include <system_error>
 
@@ -9,6 +8,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winreg.h>
+#include <shlobj.h>
 #endif
 
 namespace scpdpi {
@@ -23,20 +23,6 @@ Result<std::filesystem::path> current_executable() {
     return Result<std::filesystem::path>::success(std::filesystem::path(buffer.data()));
 }
 
-Result<std::filesystem::path> local_app_data() {
-    std::array<wchar_t, 32768> buffer{};
-    const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer.data(), static_cast<DWORD>(buffer.size()));
-    if (length == 0U || length >= buffer.size())
-        return Result<std::filesystem::path>::failure({"LOCALAPPDATA is unavailable; ScpDPI cannot install per-user startup", static_cast<int>(GetLastError())});
-    return Result<std::filesystem::path>::success(std::filesystem::path(buffer.data()));
-}
-
-Result<std::filesystem::path> startup_marker_path() {
-    const auto app_data = local_app_data();
-    if (!app_data) return Result<std::filesystem::path>::failure(app_data.error());
-    return Result<std::filesystem::path>::success(app_data.value() / L"Programs" / L"ScpDPI" / L".startup-configured");
-}
-
 Result<void> copy_if_missing(const std::filesystem::path& source, const std::filesystem::path& destination) {
     std::error_code error;
     if (!std::filesystem::is_regular_file(source, error) || error)
@@ -48,30 +34,43 @@ Result<void> copy_if_missing(const std::filesystem::path& source, const std::fil
     return Result<void>::success();
 }
 
-Result<void> write_run_entry(const std::filesystem::path& helper) {
+Result<void> remove_legacy_run_entry() {
     HKEY key = nullptr;
     constexpr wchar_t run_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-    const LSTATUS open_status = RegCreateKeyExW(HKEY_CURRENT_USER, run_key, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr);
+    const LSTATUS open_status = RegOpenKeyExW(HKEY_CURRENT_USER, run_key, 0, KEY_SET_VALUE, &key);
+    if (open_status == ERROR_FILE_NOT_FOUND) return Result<void>::success();
     if (open_status != ERROR_SUCCESS)
-        return Result<void>::failure({"Could not open the current user's Windows startup settings", static_cast<int>(open_status)});
-    const std::wstring command = L"\"" + helper.wstring() + L"\"";
-    const DWORD byte_count = static_cast<DWORD>((command.size() + 1U) * sizeof(wchar_t));
-    const LSTATUS write_status = RegSetValueExW(key, L"ScpDPI", 0, REG_SZ,
-        reinterpret_cast<const BYTE*>(command.c_str()), byte_count);
+        return Result<void>::failure({"Could not update the current user's Windows startup settings", static_cast<int>(open_status)});
+    const LSTATUS delete_status = RegDeleteValueW(key, L"ScpDPI");
     RegCloseKey(key);
-    if (write_status != ERROR_SUCCESS)
-        return Result<void>::failure({"Could not register ScpDPI to start for the current Windows user", static_cast<int>(write_status)});
+    if (delete_status != ERROR_SUCCESS && delete_status != ERROR_FILE_NOT_FOUND)
+        return Result<void>::failure({"Could not remove the old ScpDPI startup entry", static_cast<int>(delete_status)});
     return Result<void>::success();
 }
 
-Result<void> write_startup_marker(const std::filesystem::path& marker, const char* value) {
+Result<void> copy_runtime_tree(const std::filesystem::path& source, const std::filesystem::path& destination) {
     std::error_code error;
-    std::filesystem::create_directories(marker.parent_path(), error);
-    if (error) return Result<void>::failure({"Could not save the ScpDPI startup preference", error.value()});
-    std::ofstream configured(marker, std::ios::binary | std::ios::trunc);
-    if (!configured) return Result<void>::failure({"Could not save the ScpDPI startup preference", 0});
-    configured << value << '\n';
-    if (!configured) return Result<void>::failure({"Could not save the ScpDPI startup preference", 0});
+    if (!std::filesystem::is_directory(source, error) || error)
+        return Result<void>::failure({"The Windows DPI runtime is missing from the build output", error.value()});
+    for (std::filesystem::recursive_directory_iterator item(source, error), end; !error && item != end; item.increment(error)) {
+        const auto relative = std::filesystem::relative(item->path(), source, error);
+        if (error) break;
+        const auto target = destination / relative;
+        if (item->is_directory(error)) {
+            std::filesystem::create_directories(target, error);
+            if (error) break;
+        } else if (item->is_regular_file(error)) {
+            std::filesystem::create_directories(target.parent_path(), error);
+            if (error) break;
+            if (!std::filesystem::exists(target, error)) {
+                error.clear();
+                std::filesystem::copy_file(item->path(), target, std::filesystem::copy_options::none, error);
+                if (error) break;
+            }
+        }
+        if (error) break;
+    }
+    if (error) return Result<void>::failure({"Could not copy the Windows DPI runtime", error.value()});
     return Result<void>::success();
 }
 #endif
@@ -82,61 +81,62 @@ Result<std::filesystem::path> install_and_register_autostart() {
 #ifdef _WIN32
     const auto source_exe = current_executable();
     if (!source_exe) return Result<std::filesystem::path>::failure(source_exe.error());
-    const auto app_data = local_app_data();
-    if (!app_data) return Result<std::filesystem::path>::failure(app_data.error());
+    const auto source_dir = source_exe.value().parent_path();
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(source_dir / L"scpdpi_autostart.exe", error) || error)
+        return Result<std::filesystem::path>::failure({"The ScpDPI background launcher is missing from the build output", error.value()});
+    if (!std::filesystem::is_directory(source_dir / L"scpdpi-dpi", error) || error)
+        return Result<std::filesystem::path>::failure({"The Windows DPI runtime is missing from the build output", error.value()});
+    const auto legacy_removed = remove_legacy_run_entry();
+    if (!legacy_removed) return Result<std::filesystem::path>::failure(legacy_removed.error());
+    return Result<std::filesystem::path>::success(source_dir);
+#else
+    return Result<std::filesystem::path>::failure({"Per-user Windows autostart is not available on this platform", 0});
+#endif
+}
 
-    const auto install_dir = app_data.value() / L"Programs" / L"ScpDPI";
+Result<std::filesystem::path> install_protected_runtime() {
+#ifdef _WIN32
+    const auto source_exe = current_executable();
+    if (!source_exe) return Result<std::filesystem::path>::failure(source_exe.error());
+    PWSTR program_files = nullptr;
+    const HRESULT known_folder = SHGetKnownFolderPath(FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, nullptr, &program_files);
+    if (FAILED(known_folder))
+        return Result<std::filesystem::path>::failure({"Could not locate the protected Windows application directory", static_cast<int>(known_folder)});
+    const std::filesystem::path install_dir = std::filesystem::path(program_files) / L"ScpDPI";
+    CoTaskMemFree(program_files);
     std::error_code error;
     std::filesystem::create_directories(install_dir, error);
-    if (error) return Result<std::filesystem::path>::failure({"Could not create the per-user ScpDPI install directory", error.value()});
+    if (error) return Result<std::filesystem::path>::failure({"Could not create the protected ScpDPI install directory", error.value()});
 
+    const auto source_dir = source_exe.value().parent_path();
     auto copied = copy_if_missing(source_exe.value(), install_dir / source_exe.value().filename());
     if (!copied) return Result<std::filesystem::path>::failure(copied.error());
-    const auto source_dir = source_exe.value().parent_path();
-    const auto helper_name = std::filesystem::path(L"scpdpi_autostart.exe");
-    copied = copy_if_missing(source_dir / helper_name, install_dir / helper_name);
+    copied = copy_if_missing(source_dir / L"scpdpi_autostart.exe", install_dir / L"scpdpi_autostart.exe");
     if (!copied) return Result<std::filesystem::path>::failure(copied.error());
 
     for (std::filesystem::directory_iterator item(source_dir, error), end; !error && item != end; item.increment(error)) {
         if (!item->is_regular_file(error) || error) { error.clear(); continue; }
-        std::wstring extension = item->path().extension().wstring();
+        const auto extension = item->path().extension().wstring();
         if (extension == L".dll" || extension == L".DLL") {
             copied = copy_if_missing(item->path(), install_dir / item->path().filename());
             if (!copied) return Result<std::filesystem::path>::failure(copied.error());
         }
     }
     if (error) return Result<std::filesystem::path>::failure({"Could not enumerate ScpDPI runtime files", error.value()});
-
-    const auto marker = install_dir / L".startup-configured";
-    if (!std::filesystem::exists(marker, error)) {
-        if (error) return Result<std::filesystem::path>::failure({"Could not check ScpDPI startup preference", error.value()});
-        const auto registered = write_run_entry(install_dir / helper_name);
-        if (!registered) return Result<std::filesystem::path>::failure(registered.error());
-        const auto saved = write_startup_marker(marker, "configured");
-        if (!saved) return Result<std::filesystem::path>::failure({"ScpDPI was registered, but its startup preference could not be saved", saved.error().native_code});
-    }
+    const auto runtime_copy = copy_runtime_tree(source_dir / L"scpdpi-dpi", install_dir / L"scpdpi-dpi");
+    if (!runtime_copy) return Result<std::filesystem::path>::failure(runtime_copy.error());
+    const auto legacy_removed = remove_legacy_run_entry();
+    if (!legacy_removed) return Result<std::filesystem::path>::failure(legacy_removed.error());
     return Result<std::filesystem::path>::success(install_dir);
 #else
-    return Result<std::filesystem::path>::failure({"Per-user Windows autostart is not available on this platform", 0});
+    return Result<std::filesystem::path>::failure({"Protected Windows runtime installation is not available on this platform", 0});
 #endif
 }
 
 Result<void> enable_autostart() {
 #ifdef _WIN32
-    const auto app_data = local_app_data();
-    if (!app_data) return Result<void>::failure(app_data.error());
-    auto helper = app_data.value() / L"Programs" / L"ScpDPI" / L"scpdpi_autostart.exe";
-    std::error_code error;
-    if (!std::filesystem::is_regular_file(helper, error) || error) {
-        const auto installed = install_and_register_autostart();
-        if (!installed) return Result<void>::failure(installed.error());
-        helper = installed.value() / L"scpdpi_autostart.exe";
-    }
-    const auto registered = write_run_entry(helper);
-    if (!registered) return registered;
-    const auto marker = startup_marker_path();
-    if (!marker) return Result<void>::failure(marker.error());
-    return write_startup_marker(marker.value(), "configured");
+    return set_background_task_autostart(true);
 #else
     return Result<void>::failure({"Per-user Windows autostart is not available on this platform", 0});
 #endif
@@ -144,20 +144,9 @@ Result<void> enable_autostart() {
 
 Result<void> remove_autostart() {
 #ifdef _WIN32
-    HKEY key = nullptr;
-    constexpr wchar_t run_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-    const LSTATUS open_status = RegOpenKeyExW(HKEY_CURRENT_USER, run_key, 0, KEY_SET_VALUE, &key);
-    if (open_status != ERROR_SUCCESS && open_status != ERROR_FILE_NOT_FOUND)
-        return Result<void>::failure({"Could not open the current user's Windows startup settings", static_cast<int>(open_status)});
-    if (open_status == ERROR_SUCCESS) {
-        const LSTATUS delete_status = RegDeleteValueW(key, L"ScpDPI");
-        RegCloseKey(key);
-        if (delete_status != ERROR_SUCCESS && delete_status != ERROR_FILE_NOT_FOUND)
-            return Result<void>::failure({"Could not remove ScpDPI from Windows startup", static_cast<int>(delete_status)});
-    }
-    const auto marker = startup_marker_path();
-    if (!marker) return Result<void>::failure(marker.error());
-    return write_startup_marker(marker.value(), "disabled");
+    const auto legacy_removed = remove_legacy_run_entry();
+    if (!legacy_removed) return legacy_removed;
+    return set_background_task_autostart(false);
 #else
     return Result<void>::failure({"Per-user Windows autostart is not available on this platform", 0});
 #endif

@@ -14,6 +14,13 @@ struct AppConfig {
     std::string profile{"default"};
     std::string log_level{"info"};
     bool file_logging{true};
+    bool dpi_enabled{
+#ifdef _WIN32
+        true
+#else
+        false
+#endif
+    };
 };
 
 class ConfigStore {
