@@ -125,4 +125,17 @@ TlsParseResult parse_tls_client_hello(std::span<const std::uint8_t> stream) {
     }
 }
 
+TlsParseResult parse_tls_client_hello_message(std::span<const std::uint8_t> handshake) {
+    if (handshake.size() < 4U) return {TlsParseState::incomplete, {}};
+    if (handshake[0] != 0x01U) return invalid();
+    constexpr std::size_t max_client_hello = 65535U;
+    const std::size_t body_length = read_u24(handshake, 1U);
+    if (body_length > max_client_hello - 4U) return invalid();
+    const std::size_t expected_size = 4U + body_length;
+    if (handshake.size() < expected_size) return {TlsParseState::incomplete, {}};
+    std::vector<std::size_t> offsets(handshake.size());
+    for (std::size_t index = 0U; index < offsets.size(); ++index) offsets[index] = index;
+    return parse_sni(handshake, offsets, expected_size);
+}
+
 } // namespace scpdpi::dpi

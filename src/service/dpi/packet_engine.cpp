@@ -1,6 +1,7 @@
 #include "packet_engine.hpp"
 
 #include "host_lists.hpp"
+#include "quic_initial.hpp"
 #include "tls_client_hello.hpp"
 
 #ifdef _WIN32
@@ -34,9 +35,19 @@ namespace {
 using Clock = std::chrono::steady_clock;
 constexpr std::size_t max_hello_bytes = 64U * 1024U;
 constexpr std::size_t max_pending_flows = 512U;
+constexpr std::size_t max_voice_decoy_keys = 2048U;
 constexpr std::size_t max_segment_payload = 1200U;
 constexpr auto pending_timeout = std::chrono::milliseconds(1800);
 constexpr auto response_timeout = std::chrono::seconds(8);
+constexpr auto voice_decoy_key_timeout = std::chrono::seconds(15);
+
+enum class VoiceDiscoveryKind { none, discord, stun };
+
+struct BuiltTcpSegment {
+    std::vector<std::uint8_t> bytes;
+    std::size_t stream_begin{};
+    std::size_t stream_end{};
+};
 
 std::string windows_error(const char* action, DWORD code) {
     return std::string(action) + " (Windows error " + std::to_string(code) + ")";
@@ -141,6 +152,87 @@ std::string reverse_key(std::string key) {
     return key;
 }
 
+std::uint16_t read_be16(const std::uint8_t* bytes) {
+    return static_cast<std::uint16_t>((static_cast<std::uint16_t>(bytes[0]) << 8U) |
+                                      static_cast<std::uint16_t>(bytes[1]));
+}
+
+std::uint32_t read_be32(const std::uint8_t* bytes) {
+    return (static_cast<std::uint32_t>(bytes[0]) << 24U) |
+           (static_cast<std::uint32_t>(bytes[1]) << 16U) |
+           (static_cast<std::uint32_t>(bytes[2]) << 8U) |
+           static_cast<std::uint32_t>(bytes[3]);
+}
+
+bool is_tls_candidate_port(std::uint16_t port) {
+    switch (port) {
+    case 80U:
+    case 443U:
+    case 2053U:
+    case 2083U:
+    case 2087U:
+    case 2096U:
+    case 8443U:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool is_voice_candidate_port(std::uint16_t port) {
+    return port == 3478U || port == 3479U || port == 5349U || port == 19302U ||
+           (port >= 19294U && port <= 19344U) || (port >= 50000U && port <= 50100U);
+}
+
+VoiceDiscoveryKind identify_voice_discovery(std::span<const std::uint8_t> payload) {
+    // Discord's IP discovery request is a fixed 74-byte message. The address and
+    // port fields are zeroed in requests; responses populate those fields.
+    if (payload.size() == 74U && read_be16(payload.data()) == 1U &&
+        read_be16(payload.data() + 2U) == 70U && read_be32(payload.data() + 4U) != 0U &&
+        std::all_of(payload.begin() + 8, payload.end(), [](std::uint8_t byte) { return byte == 0U; })) {
+        return VoiceDiscoveryKind::discord;
+    }
+
+    // Only STUN Binding Requests are eligible. Other STUN methods and arbitrary
+    // datagrams are passed through without modification.
+    if (payload.size() >= 20U && read_be16(payload.data()) == 0x0001U &&
+        read_be16(payload.data() + 2U) == payload.size() - 20U &&
+        payload[4] == 0x21U && payload[5] == 0x12U && payload[6] == 0xa4U && payload[7] == 0x42U) {
+        return VoiceDiscoveryKind::stun;
+    }
+    return VoiceDiscoveryKind::none;
+}
+
+bool make_voice_decoy(std::span<const std::uint8_t> original, VoiceDiscoveryKind kind,
+                      std::vector<std::uint8_t>& packet, std::size_t payload_offset) {
+    const std::size_t mutation_offset = kind == VoiceDiscoveryKind::discord ? 4U : 8U;
+    if (kind == VoiceDiscoveryKind::none || payload_offset > packet.size() ||
+        original.size() > packet.size() - payload_offset || mutation_offset >= original.size()) return false;
+    packet[payload_offset + mutation_offset] ^= 0x80U;
+    return true;
+}
+
+std::string voice_discovery_key(const ParsedPacket& packet, std::span<const std::uint8_t> payload,
+                                VoiceDiscoveryKind kind) {
+    if (packet.udp == nullptr || (packet.ipv4 == nullptr && packet.ipv6 == nullptr)) return {};
+    std::string key;
+    key.push_back(packet.ipv6 != nullptr ? '6' : '4');
+    if (packet.ipv4 != nullptr) {
+        key.append(reinterpret_cast<const char*>(&packet.ipv4->SrcAddr), sizeof(packet.ipv4->SrcAddr));
+        key.append(reinterpret_cast<const char*>(&packet.ipv4->DstAddr), sizeof(packet.ipv4->DstAddr));
+    } else {
+        key.append(reinterpret_cast<const char*>(packet.ipv6->SrcAddr), sizeof(packet.ipv6->SrcAddr));
+        key.append(reinterpret_cast<const char*>(packet.ipv6->DstAddr), sizeof(packet.ipv6->DstAddr));
+    }
+    key.append(reinterpret_cast<const char*>(&packet.udp->SrcPort), sizeof(packet.udp->SrcPort));
+    key.append(reinterpret_cast<const char*>(&packet.udp->DstPort), sizeof(packet.udp->DstPort));
+    const std::size_t id_offset = kind == VoiceDiscoveryKind::discord ? 4U : 8U;
+    const std::size_t id_length = kind == VoiceDiscoveryKind::discord ? 4U : 12U;
+    if (id_offset > payload.size() || id_length > payload.size() - id_offset) return {};
+    key.append(reinterpret_cast<const char*>(payload.data() + id_offset), id_length);
+    return key;
+}
+
 struct CapturedPacket {
     std::vector<std::uint8_t> bytes;
     WINDIVERT_ADDRESS address{};
@@ -206,9 +298,12 @@ struct PacketEngine::Impl {
     std::unordered_map<std::string, PendingHello> pending;
     std::unordered_map<std::string, Attempt> attempts;
     std::unordered_map<std::string, StrategyState> strategies;
+    std::unordered_map<std::string, Clock::time_point> voice_decoy_keys;
     std::atomic<std::uint64_t> packets_seen{};
     std::atomic<std::uint64_t> tcp_443_outbound{};
     std::atomic<std::uint64_t> tcp_443_tunnel{};
+    std::atomic<std::uint64_t> tcp_tls_candidates_outbound{};
+    std::atomic<std::uint64_t> tcp_tls_candidates_tunnel{};
     std::atomic<std::uint64_t> tls_hellos_parsed{};
     std::atomic<std::uint64_t> tls_hellos_unlisted{};
     std::atomic<std::uint64_t> tls_hellos_timed_out{};
@@ -218,6 +313,9 @@ struct PacketEngine::Impl {
     std::atomic<std::uint64_t> packets_resegmented{};
     std::atomic<std::uint64_t> domains_matched{};
     std::atomic<std::uint64_t> quic_udp_443_dropped{};
+    std::atomic<std::uint64_t> voice_udp_requests{};
+    std::atomic<std::uint64_t> voice_udp_decoys_sent{};
+    std::atomic<std::uint64_t> voice_udp_decoy_failures{};
     std::atomic<std::uint64_t> tunnel_interfaces_count{};
     std::atomic<std::uint64_t> strategies_changed{};
 
@@ -249,6 +347,14 @@ struct PacketEngine::Impl {
         return !tunnels.empty();
     }
 
+    bool mark_voice_decoy(const std::string& key, Clock::time_point now) {
+        if (key.empty()) return false;
+        std::lock_guard lock(flow_mutex);
+        if (voice_decoy_keys.contains(key) || voice_decoy_keys.size() >= max_voice_decoy_keys) return false;
+        voice_decoy_keys.emplace(key, now);
+        return true;
+    }
+
     void refresh_tunnels() {
         auto current = tunnel_interfaces();
         const auto count = static_cast<std::uint64_t>(current.size());
@@ -274,7 +380,8 @@ struct PacketEngine::Impl {
         const auto attempt = attempts.find(key);
         if (attempt == attempts.end()) return;
         auto& state = strategies[attempt->second.host];
-        if (!state.has_best) state.next = (attempt->second.strategy + 1U) % 3U;
+        state.next = (attempt->second.strategy + 1U) % 3U;
+        state.has_best = false;
         strategies_changed.fetch_add(1U, std::memory_order_relaxed);
         attempts.erase(attempt);
     }
@@ -302,7 +409,7 @@ struct PacketEngine::Impl {
         else if (packet.payload[0] == 0x16U || packet.payload[0] == 0x17U) succeed_attempt(outgoing_key);
     }
 
-    std::vector<std::vector<std::uint8_t>> split_stream(const CapturedPacket& first, const PendingHello& hello,
+    std::vector<BuiltTcpSegment> split_stream(const CapturedPacket& first, const PendingHello& hello,
             const std::vector<std::size_t>& cuts, std::size_t strategy) {
         std::vector<std::size_t> boundaries{0U};
         for (const auto cut : cuts) boundaries.push_back(cut);
@@ -316,7 +423,7 @@ struct PacketEngine::Impl {
         }
         if (chunks.empty() || chunks.back() != hello.stream.size()) chunks.push_back(hello.stream.size());
 
-        std::vector<std::vector<std::uint8_t>> packets;
+        std::vector<BuiltTcpSegment> packets;
         packets.reserve(chunks.size());
         std::size_t begin = 0U;
         auto original = first.bytes;
@@ -352,11 +459,48 @@ struct PacketEngine::Impl {
             }
             WINDIVERT_ADDRESS address = first.address;
             if (!WinDivertHelperCalcChecksums(packet.data(), static_cast<UINT>(packet.size()), &address, 0U)) return {};
-            packets.push_back(std::move(packet));
+            packets.push_back({std::move(packet), begin, end});
             begin = end;
         }
         (void)strategy;
         return packets;
+    }
+
+    std::vector<std::size_t> transmission_order(const std::vector<BuiltTcpSegment>& segments,
+                                                 std::size_t strategy, const TlsClientHello& hello) const {
+        std::vector<std::size_t> order;
+        order.reserve(segments.size());
+        if (strategy == 0U || segments.size() < 2U) {
+            for (std::size_t index = 0U; index < segments.size(); ++index) order.push_back(index);
+            return order;
+        }
+        if (strategy == 1U) {
+            // Let the receiver queue the tail first, then complete the sequence
+            // from the front. TCP still reconstructs the original byte stream.
+            for (std::size_t index = segments.size(); index > 0U; --index) order.push_back(index - 1U);
+            return order;
+        }
+
+        std::size_t first_sni_segment = segments.size();
+        std::size_t last_sni_segment = 0U;
+        const std::size_t sni_end = hello.sni_offset + hello.sni_length;
+        for (std::size_t index = 0U; index < segments.size(); ++index) {
+            if (segments[index].stream_begin < sni_end && segments[index].stream_end > hello.sni_offset) {
+                first_sni_segment = std::min(first_sni_segment, index);
+                last_sni_segment = std::max(last_sni_segment, index);
+            }
+        }
+        if (first_sni_segment == segments.size()) {
+            for (std::size_t index = segments.size(); index > 0U; --index) order.push_back(index - 1U);
+            return order;
+        }
+        // Send bytes after the hostname first, then the hostname itself, and
+        // finally the prefix. This gives each connection a distinct valid TCP
+        // delivery order while preserving all original bytes and sequence IDs.
+        for (std::size_t index = last_sni_segment + 1U; index < segments.size(); ++index) order.push_back(index);
+        for (std::size_t index = first_sni_segment; index <= last_sni_segment; ++index) order.push_back(index);
+        for (std::size_t index = 0U; index < first_sni_segment; ++index) order.push_back(index);
+        return order;
     }
 
     void adapt_or_pass(const std::string& key, PendingHello& hello, const TlsClientHello& parsed_hello) {
@@ -378,9 +522,10 @@ struct PacketEngine::Impl {
             return;
         }
         resegment_attempts.fetch_add(1U, std::memory_order_relaxed);
-        for (std::size_t index = 0U; index < segments.size(); ++index) {
+        const auto order = transmission_order(segments, strategy, parsed_hello);
+        for (const auto index : order) {
             WINDIVERT_ADDRESS address = first.address;
-            if (!send_packet(segments[index], address)) {
+            if (!send_packet(segments[index].bytes, address)) {
                 resegment_failures.fetch_add(1U, std::memory_order_relaxed);
                 // Preserve connectivity if injection of a crafted segment fails. Any
                 // already sent prefix is safe to retransmit because TCP deduplicates it.
@@ -487,13 +632,49 @@ struct PacketEngine::Impl {
         if (!parse_packet(bytes, parsed)) { (void)send_packet(bytes, address); return; }
 
         const bool tunnel = is_tunnel(address);
-        if (parsed.udp != nullptr && address.Outbound != 0U &&
-            WinDivertHelperNtohs(parsed.udp->DstPort) == 443U) {
-            // Drop QUIC inside the VPN so apps retry over the tunnel with TCP/TLS.
-            // Keep physical UDP/443 intact whenever a tunnel exists: it can carry
-            // the VPN's own transport and must not be mistaken for application QUIC.
-            if (tunnel || !has_tunnels()) quic_udp_443_dropped.fetch_add(1U, std::memory_order_relaxed);
-            else (void)send_packet(bytes, address);
+        if (parsed.udp != nullptr && address.Outbound != 0U) {
+            const auto destination_port = WinDivertHelperNtohs(parsed.udp->DstPort);
+            if (destination_port == 443U) {
+                // A direct QUIC Initial is dropped only when its authenticated
+                // ClientHello identifies a listed site. Unknown QUIC and every
+                // packet on a recognized tunnel keep their original path.
+                const auto server_name = tunnel || has_tunnels() ? std::nullopt :
+                    quic_initial_server_name(std::span<const std::uint8_t>(parsed.payload, parsed.payload_length));
+                if (server_name && hosts.matches(*server_name))
+                    quic_udp_443_dropped.fetch_add(1U, std::memory_order_relaxed);
+                else
+                    (void)send_packet(bytes, address);
+                return;
+            }
+            if (is_voice_candidate_port(destination_port) && parsed.payload != nullptr && parsed.payload_length > 0U) {
+                const auto kind = identify_voice_discovery(std::span<const std::uint8_t>(parsed.payload, parsed.payload_length));
+                if (kind != VoiceDiscoveryKind::none) {
+                    voice_udp_requests.fetch_add(1U, std::memory_order_relaxed);
+                    if (!tunnel) {
+                        auto decoy = bytes;
+                        const auto payload = std::span<const std::uint8_t>(parsed.payload, parsed.payload_length);
+                        const auto key = voice_discovery_key(parsed, payload, kind);
+                        if (mark_voice_decoy(key, Clock::now())) {
+                            if (!make_voice_decoy(payload, kind, decoy, parsed.payload_offset)) {
+                                voice_udp_decoy_failures.fetch_add(1U, std::memory_order_relaxed);
+                            } else {
+                                ParsedPacket decoy_headers;
+                                WINDIVERT_ADDRESS decoy_address = address;
+                                if (parse_packet(decoy, decoy_headers) &&
+                                    WinDivertHelperCalcChecksums(decoy.data(), static_cast<UINT>(decoy.size()), &decoy_address, 0U)) {
+                                    if (send_packet(decoy, decoy_address))
+                                        voice_udp_decoys_sent.fetch_add(1U, std::memory_order_relaxed);
+                                    else
+                                        voice_udp_decoy_failures.fetch_add(1U, std::memory_order_relaxed);
+                                } else {
+                                    voice_udp_decoy_failures.fetch_add(1U, std::memory_order_relaxed);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            (void)send_packet(bytes, address);
             return;
         }
         if (parsed.tcp == nullptr) { (void)send_packet(bytes, address); return; }
@@ -506,12 +687,17 @@ struct PacketEngine::Impl {
             (void)send_packet(bytes, address);
             return;
         }
-        if (WinDivertHelperNtohs(parsed.tcp->DstPort) != 443U) {
+        const auto destination_port = WinDivertHelperNtohs(parsed.tcp->DstPort);
+        if (!is_tls_candidate_port(destination_port)) {
             (void)send_packet(bytes, address);
             return;
         }
-        tcp_443_outbound.fetch_add(1U, std::memory_order_relaxed);
-        if (tunnel) tcp_443_tunnel.fetch_add(1U, std::memory_order_relaxed);
+        tcp_tls_candidates_outbound.fetch_add(1U, std::memory_order_relaxed);
+        if (tunnel) tcp_tls_candidates_tunnel.fetch_add(1U, std::memory_order_relaxed);
+        if (destination_port == 443U) {
+            tcp_443_outbound.fetch_add(1U, std::memory_order_relaxed);
+            if (tunnel) tcp_443_tunnel.fetch_add(1U, std::memory_order_relaxed);
+        }
         handle_outbound_tcp(bytes, address, parsed);
     }
 
@@ -530,6 +716,10 @@ struct PacketEngine::Impl {
                 ++it;
                 fail_attempt(key);
             } else ++it;
+        }
+        for (auto it = voice_decoy_keys.begin(); it != voice_decoy_keys.end();) {
+            if (now - it->second >= voice_decoy_key_timeout) it = voice_decoy_keys.erase(it);
+            else ++it;
         }
     }
 
@@ -557,7 +747,7 @@ struct PacketEngine::Impl {
         const auto list_result = hosts.load(runtime_directory);
         if (!list_result) { set_error(list_result.error().message); return list_result; }
         refresh_tunnels();
-        constexpr char filter[] = "!impostor and !loopback and (tcp.DstPort == 443 or tcp.SrcPort == 443 or (outbound and udp.DstPort == 443))";
+        constexpr char filter[] = "!impostor and !loopback and (tcp.DstPort == 80 or tcp.SrcPort == 80 or tcp.DstPort == 443 or tcp.SrcPort == 443 or tcp.DstPort == 2053 or tcp.SrcPort == 2053 or tcp.DstPort == 2083 or tcp.SrcPort == 2083 or tcp.DstPort == 2087 or tcp.SrcPort == 2087 or tcp.DstPort == 2096 or tcp.SrcPort == 2096 or tcp.DstPort == 8443 or tcp.SrcPort == 8443 or (outbound and (udp.DstPort == 443 or udp.DstPort == 3478 or udp.DstPort == 3479 or udp.DstPort == 5349 or udp.DstPort == 19302 or (udp.DstPort >= 19294 and udp.DstPort <= 19344) or (udp.DstPort >= 50000 and udp.DstPort <= 50100))))";
         handle = WinDivertOpen(filter, WINDIVERT_LAYER_NETWORK, WINDIVERT_PRIORITY_HIGHEST, 0U);
         if (handle == INVALID_HANDLE_VALUE) {
             const DWORD code = GetLastError();
@@ -607,6 +797,7 @@ struct PacketEngine::Impl {
             std::lock_guard lock(flow_mutex);
             for (auto& [key, hello] : pending) { (void)key; release_hello(hello); }
             pending.clear();
+            voice_decoy_keys.clear();
         }
         const BOOL closed = WinDivertClose(handle);
         const DWORD code = closed ? ERROR_SUCCESS : GetLastError();
@@ -632,6 +823,8 @@ PacketEngineStats PacketEngine::stats() const noexcept {
     value.packets_seen = impl_->packets_seen.load(std::memory_order_relaxed);
     value.tcp_443_outbound = impl_->tcp_443_outbound.load(std::memory_order_relaxed);
     value.tcp_443_tunnel = impl_->tcp_443_tunnel.load(std::memory_order_relaxed);
+    value.tcp_tls_candidates_outbound = impl_->tcp_tls_candidates_outbound.load(std::memory_order_relaxed);
+    value.tcp_tls_candidates_tunnel = impl_->tcp_tls_candidates_tunnel.load(std::memory_order_relaxed);
     value.tls_hellos_parsed = impl_->tls_hellos_parsed.load(std::memory_order_relaxed);
     value.tls_hellos_unlisted = impl_->tls_hellos_unlisted.load(std::memory_order_relaxed);
     value.tls_hellos_timed_out = impl_->tls_hellos_timed_out.load(std::memory_order_relaxed);
@@ -641,6 +834,9 @@ PacketEngineStats PacketEngine::stats() const noexcept {
     value.packets_resegmented = impl_->packets_resegmented.load(std::memory_order_relaxed);
     value.domains_matched = impl_->domains_matched.load(std::memory_order_relaxed);
     value.quic_udp_443_dropped = impl_->quic_udp_443_dropped.load(std::memory_order_relaxed);
+    value.voice_udp_requests = impl_->voice_udp_requests.load(std::memory_order_relaxed);
+    value.voice_udp_decoys_sent = impl_->voice_udp_decoys_sent.load(std::memory_order_relaxed);
+    value.voice_udp_decoy_failures = impl_->voice_udp_decoy_failures.load(std::memory_order_relaxed);
     value.tunnel_interfaces = impl_->tunnel_interfaces_count.load(std::memory_order_relaxed);
     value.strategies_changed = impl_->strategies_changed.load(std::memory_order_relaxed);
     return value;

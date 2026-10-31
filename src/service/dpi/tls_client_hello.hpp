@@ -21,5 +21,6 @@ struct TlsParseResult {
 };
 
 [[nodiscard]] TlsParseResult parse_tls_client_hello(std::span<const std::uint8_t> stream);
+[[nodiscard]] TlsParseResult parse_tls_client_hello_message(std::span<const std::uint8_t> handshake);
 
 } // namespace scpdpi::dpi

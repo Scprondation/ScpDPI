@@ -45,8 +45,13 @@ void print_summary(const Json& response) {
                   << '/' << dpi.value("resegment_failures", std::uint64_t{})
                   << "  |  reinject failures: " << dpi.value("packet_send_failures", std::uint64_t{})
                   << "  |  split packets: " << dpi.value("packets_resegmented", std::uint64_t{})
-                  << "  |  UDP/443 blocked: " << dpi.value("quic_udp_443_dropped", std::uint64_t{})
-                  << "  |  VPN interfaces: " << dpi.value("tunnel_interfaces", std::uint64_t{}) << '\n';
+                  << "  |  listed QUIC fallbacks: " << dpi.value("quic_udp_443_dropped", std::uint64_t{})
+                  << "  |  VPN interfaces: " << dpi.value("tunnel_interfaces", std::uint64_t{}) << '\n'
+                  << "  TLS ports inspected: " << dpi.value("tcp_tls_candidates_outbound", std::uint64_t{})
+                  << "  (VPN: " << dpi.value("tcp_tls_candidates_tunnel", std::uint64_t{}) << ')'
+                  << "  |  Discord/STUN requests: " << dpi.value("voice_udp_requests", std::uint64_t{})
+                  << "  |  UDP decoys sent/failed: " << dpi.value("voice_udp_decoys_sent", std::uint64_t{})
+                  << '/' << dpi.value("voice_udp_decoy_failures", std::uint64_t{}) << '\n';
     }
     const auto snapshot = response.value("snapshot", Json::object());
     if (!snapshot.is_object()) {

@@ -210,11 +210,17 @@ public:
         response["dpi"] = {{"enabled", config_.dpi_enabled}, {"running", dpi_.running()},
                             {"message", dpi_.last_error()}, {"packets_seen", stats.packets_seen},
                             {"tcp_443_outbound", stats.tcp_443_outbound}, {"tcp_443_tunnel", stats.tcp_443_tunnel},
+                            {"tcp_tls_candidates_outbound", stats.tcp_tls_candidates_outbound},
+                            {"tcp_tls_candidates_tunnel", stats.tcp_tls_candidates_tunnel},
                             {"tls_hellos_parsed", stats.tls_hellos_parsed}, {"tls_hellos_unlisted", stats.tls_hellos_unlisted},
                             {"tls_hellos_timed_out", stats.tls_hellos_timed_out}, {"resegment_attempts", stats.resegment_attempts},
                             {"resegment_failures", stats.resegment_failures}, {"packet_send_failures", stats.packet_send_failures},
                             {"packets_resegmented", stats.packets_resegmented}, {"domains_matched", stats.domains_matched},
-                            {"quic_udp_443_dropped", stats.quic_udp_443_dropped}, {"tunnel_interfaces", stats.tunnel_interfaces},
+                            {"quic_udp_443_dropped", stats.quic_udp_443_dropped},
+                            {"voice_udp_requests", stats.voice_udp_requests},
+                            {"voice_udp_decoys_sent", stats.voice_udp_decoys_sent},
+                            {"voice_udp_decoy_failures", stats.voice_udp_decoy_failures},
+                            {"tunnel_interfaces", stats.tunnel_interfaces},
                             {"strategies_changed", stats.strategies_changed}};
         const auto executable_path = current_executable_path_utf8();
         if (!executable_path.empty()) response["process_path"] = executable_path;

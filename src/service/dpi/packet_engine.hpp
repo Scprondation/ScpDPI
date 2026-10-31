@@ -14,6 +14,8 @@ struct PacketEngineStats {
     std::uint64_t packets_seen{};
     std::uint64_t tcp_443_outbound{};
     std::uint64_t tcp_443_tunnel{};
+    std::uint64_t tcp_tls_candidates_outbound{};
+    std::uint64_t tcp_tls_candidates_tunnel{};
     std::uint64_t tls_hellos_parsed{};
     std::uint64_t tls_hellos_unlisted{};
     std::uint64_t tls_hellos_timed_out{};
@@ -23,6 +25,9 @@ struct PacketEngineStats {
     std::uint64_t packets_resegmented{};
     std::uint64_t domains_matched{};
     std::uint64_t quic_udp_443_dropped{};
+    std::uint64_t voice_udp_requests{};
+    std::uint64_t voice_udp_decoys_sent{};
+    std::uint64_t voice_udp_decoy_failures{};
     std::uint64_t tunnel_interfaces{};
     std::uint64_t strategies_changed{};
 };
