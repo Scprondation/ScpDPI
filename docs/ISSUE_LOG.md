@@ -183,6 +183,16 @@ Verbatim latest snapshots supplied by the user:
 - `git diff --check` reported no whitespace errors. No tests or live Discord app session were run.
 - The previous log is consistent with a UDP/STUN-stage failure but cannot prove whether a response was blocked or whether a later voice stage failed. Test the desktop app alone with this build for at least one minute and inspect the three new STUN counters.
 
+## 2026-10-31 19:58 — STUN telemetry build startup only
+
+The user supplied the startup snapshot from the build containing STUN counters. All traffic counters are zero at 19:58:03, immediately after the DPI packet processor starts. There is no later periodic snapshot in this excerpt, so it does not yet contain a Discord voice attempt or any STUN request/response result. The user should attempt the desktop voice connection and provide the next minute snapshot.
+
+Verbatim line supplied by the user:
+
+```text
+[2026-10-31 19:58:03.791] [scpdpi] [info] Diagnostic snapshot: interfaces=2 routes=17 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=0 tcp_tls_candidates=0 tcp_tls_tunnel_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 discord_tls_matches=0 youtube_tls_matches=0 discord_tls_rx=0 discord_tls_alerts=0 discord_tls_resets=0 discord_tls_response_timeouts=0 youtube_tls_rx=0 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=0 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_responses=0 stun_binding_requests=0 stun_binding_success_responses=0 stun_binding_error_responses=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=0 strategy_changes=0
+```
+
 ## References
 
 - [GoodbyeDPI official repository and behavior description](https://github.com/ValdikSS/GoodbyeDPI)
