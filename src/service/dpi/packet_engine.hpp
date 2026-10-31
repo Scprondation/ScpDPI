@@ -26,6 +26,14 @@ struct PacketEngineStats {
     std::uint64_t domains_matched{};
     std::uint64_t discord_tls_matches{};
     std::uint64_t youtube_tls_matches{};
+    std::uint64_t discord_tls_responses{};
+    std::uint64_t discord_tls_alerts{};
+    std::uint64_t discord_tls_resets{};
+    std::uint64_t discord_tls_response_timeouts{};
+    std::uint64_t youtube_tls_responses{};
+    std::uint64_t youtube_tls_alerts{};
+    std::uint64_t youtube_tls_resets{};
+    std::uint64_t youtube_tls_response_timeouts{};
     std::uint64_t udp_443_candidates{};
     std::uint64_t udp_443_tunnel_candidates{};
     std::uint64_t quic_udp_443_dropped{};

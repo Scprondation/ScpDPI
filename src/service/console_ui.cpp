@@ -47,6 +47,15 @@ void print_summary(const Json& response) {
                   << "  |  split packets: " << dpi.value("packets_resegmented", std::uint64_t{})
                   << "  |  Discord TLS matches: " << dpi.value("discord_tls_matches", std::uint64_t{})
                   << "  |  YouTube TLS matches: " << dpi.value("youtube_tls_matches", std::uint64_t{})
+                  << "  |  TLS outcomes (rx/alert/reset/timeout): D "
+                  << dpi.value("discord_tls_responses", std::uint64_t{}) << '/'
+                  << dpi.value("discord_tls_alerts", std::uint64_t{}) << '/'
+                  << dpi.value("discord_tls_resets", std::uint64_t{}) << '/'
+                  << dpi.value("discord_tls_response_timeouts", std::uint64_t{}) << "  YT "
+                  << dpi.value("youtube_tls_responses", std::uint64_t{}) << '/'
+                  << dpi.value("youtube_tls_alerts", std::uint64_t{}) << '/'
+                  << dpi.value("youtube_tls_resets", std::uint64_t{}) << '/'
+                  << dpi.value("youtube_tls_response_timeouts", std::uint64_t{}) << '\n'
                   << "  |  listed QUIC fallbacks: " << dpi.value("quic_udp_443_dropped", std::uint64_t{})
                   << "  (Discord: " << dpi.value("discord_quic_fallbacks", std::uint64_t{}) << ')'
                   << "  (YouTube: " << dpi.value("youtube_quic_fallbacks", std::uint64_t{}) << ')'

@@ -115,6 +115,30 @@ The current logs cannot attribute the non-Discord TLS matches to YouTube, nor sh
 - `git diff --check` reported no whitespace errors. No tests or live YouTube/RTC comparison were run.
 - A `dpi off` then YouTube check is a reversible A/B diagnostic before replacing the currently installed build.
 
+## 2026-10-31 19:39–19:41 — Follow-up run with YouTube counters
+
+The user supplied the next three snapshots after the previous diagnostic build. The service restarted at 19:39:34. At 19:40 and 19:41, ScpDPI recorded 9 then 11 YouTube TLS ClientHello matches, and 127 then 137 resegmented packets overall. Split and packet reinjection failures remained zero. UDP/443 candidates rose from 202 to 220, but no YouTube QUIC fallback was recognized. Discord discovery registered 4 direct requests and 2 decoys sent, with no decoy failures. One tunnel interface was reported in both non-startup snapshots; the user previously stated that the VPN was off, so this aggregate count does not identify that interface.
+
+Important counter distinction from code inspection: `tls_timeouts` is `tls_hellos_timed_out`, incremented when ScpDPI holds an incomplete outbound TLS ClientHello for its pending-flow timeout. It does not measure a missing YouTube server response. Separately, the packet engine waits 8 seconds for a TLS response after sending a listed/resegmented ClientHello; expiry advances the hostname's strategy and increments only the global `strategy_changes`. The existing counters therefore could not say whether a YouTube connection received TLS data, an alert, a reset, or no response.
+
+The next diagnostic change adds separate per-site outcome counters for Discord and YouTube: inbound TLS response observed, TLS alert, TCP reset, and response timeout. “Response observed” means the engine saw an inbound TLS record beginning with handshake or application-data content; it does not assert that the browser completed loading the site. These counters contain no hostnames or packet contents and are included in `dpi status`, IPC status, and periodic service snapshots.
+
+Verbatim new snapshots supplied by the user:
+
+```text
+[2026-10-31 19:39:34.666] [scpdpi] [info] ScpDPI service initialized with profile default
+[2026-10-31 19:39:35.289] [scpdpi] [info] DPI packet processor started
+[2026-10-31 19:39:35.290] [scpdpi] [info] Diagnostic snapshot: interfaces=2 routes=17 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=0 tcp_tls_candidates=0 tcp_tls_tunnel_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 discord_tls_matches=0 youtube_tls_matches=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=0 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=0 strategy_changes=0
+[2026-10-31 19:40:35.492] [scpdpi] [info] Diagnostic snapshot: interfaces=3 routes=23 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=4382 tcp_tls_candidates=2231 tcp_tls_tunnel_candidates=0 tls_parsed=79 tls_unlisted=52 tls_timeouts=6 listed_tls_matches=32 discord_tls_matches=13 youtube_tls_matches=9 split_packets=127 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=202 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=35 voice_udp_tunnel_candidates=0 voice_discovery_requests=4 voice_discovery_direct=4 voice_discovery_tunnel=0 discord_ip_discovery=4 discord_ip_discovery_other_ports=0 udp_decoys_sent=2 udp_decoys_failed=0 tunnel_interfaces=1 strategy_changes=1
+[2026-10-31 19:41:35.680] [scpdpi] [info] Diagnostic snapshot: interfaces=3 routes=23 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=8834 tcp_tls_candidates=5050 tcp_tls_tunnel_candidates=0 tls_parsed=126 tls_unlisted=117 tls_timeouts=8 listed_tls_matches=34 discord_tls_matches=13 youtube_tls_matches=11 split_packets=137 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=220 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=35 voice_udp_tunnel_candidates=0 voice_discovery_requests=4 voice_discovery_direct=4 voice_discovery_tunnel=0 discord_ip_discovery=4 discord_ip_discovery_other_ports=0 udp_decoys_sent=2 udp_decoys_failed=0 tunnel_interfaces=1 strategy_changes=3
+```
+
+### Diagnostic build
+
+- MSVC 14.52 Release build of `scpdpi_service` succeeded at `out/build/windows-console-release-vpnfix/src/service/scpdpi_service.exe`.
+- `git diff --check` reported no whitespace errors. No tests and no live browser/network verification were run.
+- The new per-site outcome counters only collect evidence after this diagnostic build is installed and YouTube/Discord traffic is tried. They do not yet establish the cause of the YouTube regression or prove that a future change restores it.
+
 ## References
 
 - [GoodbyeDPI official repository and behavior description](https://github.com/ValdikSS/GoodbyeDPI)

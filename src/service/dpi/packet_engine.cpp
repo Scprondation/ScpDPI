@@ -264,6 +264,8 @@ struct Attempt {
     Clock::time_point started{Clock::now()};
 };
 
+enum class AttemptFailure { alert, reset, response_timeout };
+
 std::vector<std::size_t> strategy_cuts(std::size_t sni_offset, std::size_t sni_length, std::size_t stream_length,
                                        std::size_t strategy) {
     std::vector<std::size_t> cuts;
@@ -314,6 +316,14 @@ struct PacketEngine::Impl {
     std::atomic<std::uint64_t> domains_matched{};
     std::atomic<std::uint64_t> discord_tls_matches{};
     std::atomic<std::uint64_t> youtube_tls_matches{};
+    std::atomic<std::uint64_t> discord_tls_responses{};
+    std::atomic<std::uint64_t> discord_tls_alerts{};
+    std::atomic<std::uint64_t> discord_tls_resets{};
+    std::atomic<std::uint64_t> discord_tls_response_timeouts{};
+    std::atomic<std::uint64_t> youtube_tls_responses{};
+    std::atomic<std::uint64_t> youtube_tls_alerts{};
+    std::atomic<std::uint64_t> youtube_tls_resets{};
+    std::atomic<std::uint64_t> youtube_tls_response_timeouts{};
     std::atomic<std::uint64_t> udp_443_candidates{};
     std::atomic<std::uint64_t> udp_443_tunnel_candidates{};
     std::atomic<std::uint64_t> quic_udp_443_dropped{};
@@ -384,9 +394,20 @@ struct PacketEngine::Impl {
         for (const auto& packet : hello.packets) (void)send_original(packet);
     }
 
-    void fail_attempt(const std::string& key) {
+    void fail_attempt(const std::string& key, AttemptFailure failure) {
         const auto attempt = attempts.find(key);
         if (attempt == attempts.end()) return;
+        const auto record_failure = [failure](auto& alerts, auto& resets, auto& timeouts) {
+            switch (failure) {
+            case AttemptFailure::alert: alerts.fetch_add(1U, std::memory_order_relaxed); break;
+            case AttemptFailure::reset: resets.fetch_add(1U, std::memory_order_relaxed); break;
+            case AttemptFailure::response_timeout: timeouts.fetch_add(1U, std::memory_order_relaxed); break;
+            }
+        };
+        if (hosts.matches_discord(attempt->second.host))
+            record_failure(discord_tls_alerts, discord_tls_resets, discord_tls_response_timeouts);
+        if (hosts.matches_youtube(attempt->second.host))
+            record_failure(youtube_tls_alerts, youtube_tls_resets, youtube_tls_response_timeouts);
         auto& state = strategies[attempt->second.host];
         state.next = (attempt->second.strategy + 1U) % 3U;
         state.has_best = false;
@@ -397,6 +418,10 @@ struct PacketEngine::Impl {
     void succeed_attempt(const std::string& key) {
         const auto attempt = attempts.find(key);
         if (attempt == attempts.end()) return;
+        if (hosts.matches_discord(attempt->second.host))
+            discord_tls_responses.fetch_add(1U, std::memory_order_relaxed);
+        if (hosts.matches_youtube(attempt->second.host))
+            youtube_tls_responses.fetch_add(1U, std::memory_order_relaxed);
         auto& state = strategies[attempt->second.host];
         state.best = attempt->second.strategy;
         state.has_best = true;
@@ -409,6 +434,13 @@ struct PacketEngine::Impl {
         const auto attempt = attempts.find(outgoing_key);
         if (attempt == attempts.end()) return false;
         if (packet.tcp->Rst != 0U) {
+            // Count even the narrow injected-reset signature that ScpDPI suppresses.
+            if (packet.ipv4 != nullptr && WinDivertHelperNtohs(packet.ipv4->Id) <= 1U) {
+                if (hosts.matches_discord(attempt->second.host))
+                    discord_tls_resets.fetch_add(1U, std::memory_order_relaxed);
+                if (hosts.matches_youtube(attempt->second.host))
+                    youtube_tls_resets.fetch_add(1U, std::memory_order_relaxed);
+            }
             // Russian access networks commonly inject an IPv4 TCP reset with
             // IP ID 0 or 1. Only suppress that narrow signature when it matches
             // a live ScpDPI-listed TLS attempt; unrelated resets pass through.
@@ -416,11 +448,11 @@ struct PacketEngine::Impl {
                 passive_resets_dropped.fetch_add(1U, std::memory_order_relaxed);
                 return true;
             }
-            fail_attempt(outgoing_key);
+            fail_attempt(outgoing_key, AttemptFailure::reset);
             return false;
         }
         if (packet.payload_length == 0U || packet.payload == nullptr) return false;
-        if (packet.payload[0] == 0x15U) fail_attempt(outgoing_key);
+        if (packet.payload[0] == 0x15U) fail_attempt(outgoing_key, AttemptFailure::alert);
         else if (packet.payload[0] == 0x16U || packet.payload[0] == 0x17U) succeed_attempt(outgoing_key);
         return false;
     }
@@ -756,7 +788,7 @@ struct PacketEngine::Impl {
             if (now - it->second.started >= response_timeout) {
                 const std::string key = it->first;
                 ++it;
-                fail_attempt(key);
+                fail_attempt(key, AttemptFailure::response_timeout);
             } else ++it;
         }
         for (auto it = voice_decoy_keys.begin(); it != voice_decoy_keys.end();) {
@@ -877,6 +909,14 @@ PacketEngineStats PacketEngine::stats() const noexcept {
     value.domains_matched = impl_->domains_matched.load(std::memory_order_relaxed);
     value.discord_tls_matches = impl_->discord_tls_matches.load(std::memory_order_relaxed);
     value.youtube_tls_matches = impl_->youtube_tls_matches.load(std::memory_order_relaxed);
+    value.discord_tls_responses = impl_->discord_tls_responses.load(std::memory_order_relaxed);
+    value.discord_tls_alerts = impl_->discord_tls_alerts.load(std::memory_order_relaxed);
+    value.discord_tls_resets = impl_->discord_tls_resets.load(std::memory_order_relaxed);
+    value.discord_tls_response_timeouts = impl_->discord_tls_response_timeouts.load(std::memory_order_relaxed);
+    value.youtube_tls_responses = impl_->youtube_tls_responses.load(std::memory_order_relaxed);
+    value.youtube_tls_alerts = impl_->youtube_tls_alerts.load(std::memory_order_relaxed);
+    value.youtube_tls_resets = impl_->youtube_tls_resets.load(std::memory_order_relaxed);
+    value.youtube_tls_response_timeouts = impl_->youtube_tls_response_timeouts.load(std::memory_order_relaxed);
     value.udp_443_candidates = impl_->udp_443_candidates.load(std::memory_order_relaxed);
     value.udp_443_tunnel_candidates = impl_->udp_443_tunnel_candidates.load(std::memory_order_relaxed);
     value.quic_udp_443_dropped = impl_->quic_udp_443_dropped.load(std::memory_order_relaxed);
