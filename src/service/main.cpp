@@ -151,7 +151,7 @@ public:
                      "send_failures={} passive_resets_dropped={} udp443_candidates={} udp443_tunnel_candidates={} "
                      "quic_fallbacks={} discord_quic_fallbacks={} youtube_quic_fallbacks={} voice_udp_port_candidates={} voice_udp_tunnel_candidates={} "
                      "voice_discovery_requests={} voice_discovery_direct={} voice_discovery_tunnel={} "
-                     "discord_ip_discovery={} discord_ip_discovery_responses={} "
+                     "discord_ip_discovery={} discord_ip_discovery_responses={} discord_ip_discovery_udp_reply_flows={} "
                      "stun_binding_requests={} stun_binding_success_responses={} stun_binding_error_responses={} "
                      "discord_ip_discovery_other_ports={} "
                      "udp_decoys_sent={} udp_decoys_failed={} tunnel_interfaces={} strategy_changes={}",
@@ -172,6 +172,7 @@ public:
                      stats.voice_udp_tunnel_candidate_packets, stats.voice_udp_requests,
                      stats.voice_udp_direct_requests, stats.voice_udp_tunnel_requests,
                      stats.discord_ip_discovery_requests, stats.discord_ip_discovery_responses,
+                     stats.discord_ip_discovery_udp_reply_flows,
                      stats.stun_binding_requests, stats.stun_binding_success_responses,
                      stats.stun_binding_error_responses, stats.discord_ip_discovery_other_ports,
                      stats.voice_udp_decoys_sent, stats.voice_udp_decoy_failures,
@@ -294,6 +295,7 @@ public:
                             {"voice_udp_tunnel_requests", stats.voice_udp_tunnel_requests},
                             {"discord_ip_discovery_requests", stats.discord_ip_discovery_requests},
                             {"discord_ip_discovery_responses", stats.discord_ip_discovery_responses},
+                            {"discord_ip_discovery_udp_reply_flows", stats.discord_ip_discovery_udp_reply_flows},
                             {"discord_ip_discovery_other_ports", stats.discord_ip_discovery_other_ports},
                             {"stun_binding_requests", stats.stun_binding_requests},
                             {"stun_binding_success_responses", stats.stun_binding_success_responses},

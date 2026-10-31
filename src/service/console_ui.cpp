@@ -77,7 +77,8 @@ void print_summary(const Json& response) {
                   << "  (direct/tunnel: " << dpi.value("voice_udp_direct_requests", std::uint64_t{})
                   << '/' << dpi.value("voice_udp_tunnel_requests", std::uint64_t{}) << ')'
                   << "  |  Discord IP discovery: " << dpi.value("discord_ip_discovery_requests", std::uint64_t{})
-                  << "  (responses: " << dpi.value("discord_ip_discovery_responses", std::uint64_t{}) << ')'
+                  << "  (protocol replies: " << dpi.value("discord_ip_discovery_responses", std::uint64_t{})
+                  << ", UDP reply flows: " << dpi.value("discord_ip_discovery_udp_reply_flows", std::uint64_t{}) << ')'
                   << "  (other UDP ports: " << dpi.value("discord_ip_discovery_other_ports", std::uint64_t{}) << ')'
                   << "  |  STUN binding request/success/error: "
                   << dpi.value("stun_binding_requests", std::uint64_t{}) << '/'

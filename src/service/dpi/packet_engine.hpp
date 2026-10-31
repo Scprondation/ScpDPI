@@ -51,6 +51,7 @@ struct PacketEngineStats {
     std::uint64_t voice_udp_tunnel_requests{};
     std::uint64_t discord_ip_discovery_requests{};
     std::uint64_t discord_ip_discovery_responses{};
+    std::uint64_t discord_ip_discovery_udp_reply_flows{};
     std::uint64_t discord_ip_discovery_other_ports{};
     std::uint64_t stun_binding_requests{};
     std::uint64_t stun_binding_success_responses{};
