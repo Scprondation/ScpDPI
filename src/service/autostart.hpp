@@ -15,6 +15,7 @@ namespace scpdpi {
 
 /** Installs or runs the elevated logon task that hosts packet processing. */
 [[nodiscard]] Result<void> ensure_elevated_background_task(const std::filesystem::path& install_dir, bool force_reinstall = false);
+[[nodiscard]] Result<void> restart_elevated_background_task();
 
 /** Called only by the elevated installer process. */
 [[nodiscard]] Result<void> install_elevated_background_task();

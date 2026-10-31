@@ -1,6 +1,7 @@
 #include "autostart.hpp"
 
 #include <array>
+#include <chrono>
 #include <string>
 #include <utility>
 #include <vector>
@@ -179,6 +180,43 @@ Result<void> run_registered_task() {
     return Result<void>::success();
 }
 
+Result<void> restart_registered_task() {
+    ComApartment apartment;
+    if (FAILED(apartment.result()) && apartment.result() != RPC_E_CHANGED_MODE)
+        return Result<void>::failure({"Could not initialize Windows Task Scheduler", static_cast<int>(apartment.result())});
+    ComOwner<ITaskService> service;
+    ComOwner<ITaskFolder> folder;
+    auto folder_result = root_folder(service, folder);
+    if (!folder_result) return folder_result;
+    BstrOwner name(task_name);
+    ComOwner<IRegisteredTask> task;
+    const HRESULT found = folder->GetTask(name.get(), task.put());
+    if (FAILED(found)) return Result<void>::failure({"ScpDPI's elevated background task is not installed", static_cast<int>(found)});
+
+    TASK_STATE state = TASK_STATE_UNKNOWN;
+    HRESULT result = task->get_State(&state);
+    if (FAILED(result)) return Result<void>::failure({"Could not inspect the ScpDPI background task state", static_cast<int>(result)});
+    if (state == TASK_STATE_RUNNING || state == TASK_STATE_QUEUED) {
+        result = task->Stop(0);
+        if (FAILED(result)) return Result<void>::failure({"Could not stop the running ScpDPI background task", static_cast<int>(result)});
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        do {
+            result = task->get_State(&state);
+            if (FAILED(result)) return Result<void>::failure({"Could not wait for the ScpDPI background task to stop", static_cast<int>(result)});
+            if (state != TASK_STATE_RUNNING && state != TASK_STATE_QUEUED) break;
+            Sleep(100U);
+        } while (std::chrono::steady_clock::now() < deadline);
+        if (state == TASK_STATE_RUNNING || state == TASK_STATE_QUEUED)
+            return Result<void>::failure({"ScpDPI background task did not stop in time", ERROR_TIMEOUT});
+    }
+
+    VariantOwner parameters;
+    ComOwner<IRunningTask> running;
+    result = task->Run(parameters.value(), running.put());
+    if (FAILED(result)) return Result<void>::failure({"Windows could not restart the ScpDPI background task", static_cast<int>(result)});
+    return Result<void>::success();
+}
+
 } // namespace
 
 Result<void> install_elevated_background_task() {
@@ -344,6 +382,10 @@ Result<void> ensure_elevated_background_task(const std::filesystem::path& instal
     return Result<void>::success();
 }
 
+Result<void> restart_elevated_background_task() {
+    return restart_registered_task();
+}
+
 Result<void> set_background_task_autostart(bool enabled) {
     ComApartment apartment;
     if (FAILED(apartment.result()) && apartment.result() != RPC_E_CHANGED_MODE)
@@ -370,6 +412,9 @@ Result<void> install_elevated_background_task() {
     return Result<void>::failure({"Elevated Windows background tasks are not available on this platform", 0});
 }
 Result<void> ensure_elevated_background_task(const std::filesystem::path&, bool) {
+    return Result<void>::failure({"Elevated Windows background tasks are not available on this platform", 0});
+}
+Result<void> restart_elevated_background_task() {
     return Result<void>::failure({"Elevated Windows background tasks are not available on this platform", 0});
 }
 Result<void> set_background_task_autostart(bool) {

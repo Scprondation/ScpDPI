@@ -139,10 +139,16 @@ Result<void> ensure_background_service(const std::filesystem::path& install_dir)
         return CompareStringOrdinal(running_path.c_str(), -1, expected_path.value().c_str(), -1, TRUE) == CSTR_EQUAL;
     };
     const auto current_status = request_service("status", Json::object());
-    if (matches_expected_service(current_status)) return Result<void>::success();
+    const bool restart_running_service = matches_expected_service(current_status);
+    if (restart_running_service) {
+        const auto restarted = restart_elevated_background_task();
+        if (!restarted) return restarted;
+    }
     const bool stale_service_running = current_status.is_object() && current_status.value("ok", false);
-    const auto task = ensure_elevated_background_task(install_dir, stale_service_running);
-    if (!task) return task;
+    if (!restart_running_service) {
+        const auto task = ensure_elevated_background_task(install_dir, stale_service_running);
+        if (!task) return task;
+    }
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (std::chrono::steady_clock::now() < deadline) {
