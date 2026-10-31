@@ -56,6 +56,12 @@ void print_summary(const Json& response) {
                   << dpi.value("youtube_tls_alerts", std::uint64_t{}) << '/'
                   << dpi.value("youtube_tls_resets", std::uint64_t{}) << '/'
                   << dpi.value("youtube_tls_response_timeouts", std::uint64_t{}) << '\n'
+                  << "  Discord voice-server TLS (matches/rx/alert/reset/timeout): "
+                  << dpi.value("discord_media_tls_matches", std::uint64_t{}) << '/'
+                  << dpi.value("discord_media_tls_responses", std::uint64_t{}) << '/'
+                  << dpi.value("discord_media_tls_alerts", std::uint64_t{}) << '/'
+                  << dpi.value("discord_media_tls_resets", std::uint64_t{}) << '/'
+                  << dpi.value("discord_media_tls_response_timeouts", std::uint64_t{}) << '\n'
                   << "  |  listed QUIC fallbacks: " << dpi.value("quic_udp_443_dropped", std::uint64_t{})
                   << "  (Discord: " << dpi.value("discord_quic_fallbacks", std::uint64_t{}) << ')'
                   << "  (YouTube: " << dpi.value("youtube_quic_fallbacks", std::uint64_t{}) << ')'

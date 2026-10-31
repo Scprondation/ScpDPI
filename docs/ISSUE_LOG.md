@@ -193,6 +193,26 @@ Verbatim line supplied by the user:
 [2026-10-31 19:58:03.791] [scpdpi] [info] Diagnostic snapshot: interfaces=2 routes=17 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=0 tcp_tls_candidates=0 tcp_tls_tunnel_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 discord_tls_matches=0 youtube_tls_matches=0 discord_tls_rx=0 discord_tls_alerts=0 discord_tls_resets=0 discord_tls_response_timeouts=0 youtube_tls_rx=0 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=0 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_responses=0 stun_binding_requests=0 stun_binding_success_responses=0 stun_binding_error_responses=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=0 strategy_changes=0
 ```
 
+## 2026-10-31 20:00 — Active snapshot, no recognized voice discovery
+
+The user supplied a startup snapshot at 19:59 and a traffic snapshot at 20:00. The latter reports 14 Discord TLS matches and 13 inbound TLS records; it also reports one Discord TLS reset, one Discord TLS response timeout, one filtered passive reset, and one global strategy change. These may describe the same attempt, but the aggregate counters cannot prove that. There were 18 outbound UDP packets to the engine's watched voice-candidate ports, but zero recognized Discord IP-discovery or STUN Binding requests, and therefore zero STUN responses to correlate. If this minute was the desktop-app test, it did not reach a recognized voice discovery exchange. It is possible that the application failed earlier at its voice WebSocket/TLS stage, but the general Discord TLS counter cannot separate `discord.media` voice-server connections from other Discord TLS hosts.
+
+Added a privacy-preserving `discord.media` category for TLS matches and outcomes (response, alert, reset, response timeout). This domain is used for Discord voice server endpoints in the public protocol guide. The new counters should show whether a reset/timeout is on the voice-server connection specifically. No hostname or packet contents are logged.
+
+Verbatim snapshots supplied by the user:
+
+```text
+[2026-10-31 19:59:42.562] [scpdpi] [info] ScpDPI service initialized with profile default
+[2026-10-31 19:59:43.192] [scpdpi] [info] DPI packet processor started
+[2026-10-31 19:59:43.195] [scpdpi] [info] Diagnostic snapshot: interfaces=4 routes=32 vpn_candidates=1 dpi_enabled=true dpi_running=true dpi_error= packets=0 tcp_tls_candidates=0 tcp_tls_tunnel_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 discord_tls_matches=0 youtube_tls_matches=0 discord_tls_rx=0 discord_tls_alerts=0 discord_tls_resets=0 discord_tls_response_timeouts=0 youtube_tls_rx=0 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=0 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_responses=0 stun_binding_requests=0 stun_binding_success_responses=0 stun_binding_error_responses=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=2 strategy_changes=0
+[2026-10-31 20:00:43.354] [scpdpi] [info] Diagnostic snapshot: interfaces=3 routes=23 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=3030 tcp_tls_candidates=1707 tcp_tls_tunnel_candidates=202 tls_parsed=58 tls_unlisted=45 tls_timeouts=0 listed_tls_matches=16 discord_tls_matches=14 youtube_tls_matches=0 discord_tls_rx=13 discord_tls_alerts=0 discord_tls_resets=1 discord_tls_response_timeouts=1 youtube_tls_rx=0 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=0 split_packets=62 split_failures=0 send_failures=0 passive_resets_dropped=1 udp443_candidates=17 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=18 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_responses=0 stun_binding_requests=0 stun_binding_success_responses=0 stun_binding_error_responses=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=1 strategy_changes=1
+```
+
+### Follow-up verification
+
+- MSVC 14.52 Release build of `scpdpi_service` succeeded with `discord.media` TLS outcome counters at `out/build/windows-console-release-vpnfix/src/service/scpdpi_service.exe`.
+- `git diff --check` reported no whitespace errors. No tests or live Discord app session were run.
+
 ## References
 
 - [GoodbyeDPI official repository and behavior description](https://github.com/ValdikSS/GoodbyeDPI)

@@ -104,6 +104,12 @@ bool HostLists::matches_discord(std::string_view hostname) const {
     return matches_host_set(discord_hosts_, hostname);
 }
 
+bool HostLists::matches_discord_media(std::string_view hostname) const noexcept {
+    constexpr std::string_view suffix = "discord.media";
+    return hostname == suffix || (hostname.size() > suffix.size() && hostname.ends_with(suffix) &&
+        hostname[hostname.size() - suffix.size() - 1U] == '.');
+}
+
 bool HostLists::matches_youtube(std::string_view hostname) const {
     return matches_host_set(youtube_hosts_, hostname);
 }

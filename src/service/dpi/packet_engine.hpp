@@ -30,6 +30,11 @@ struct PacketEngineStats {
     std::uint64_t discord_tls_alerts{};
     std::uint64_t discord_tls_resets{};
     std::uint64_t discord_tls_response_timeouts{};
+    std::uint64_t discord_media_tls_matches{};
+    std::uint64_t discord_media_tls_responses{};
+    std::uint64_t discord_media_tls_alerts{};
+    std::uint64_t discord_media_tls_resets{};
+    std::uint64_t discord_media_tls_response_timeouts{};
     std::uint64_t youtube_tls_responses{};
     std::uint64_t youtube_tls_alerts{};
     std::uint64_t youtube_tls_resets{};

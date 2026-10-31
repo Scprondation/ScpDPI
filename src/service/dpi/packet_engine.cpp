@@ -350,6 +350,11 @@ struct PacketEngine::Impl {
     std::atomic<std::uint64_t> discord_tls_alerts{};
     std::atomic<std::uint64_t> discord_tls_resets{};
     std::atomic<std::uint64_t> discord_tls_response_timeouts{};
+    std::atomic<std::uint64_t> discord_media_tls_matches{};
+    std::atomic<std::uint64_t> discord_media_tls_responses{};
+    std::atomic<std::uint64_t> discord_media_tls_alerts{};
+    std::atomic<std::uint64_t> discord_media_tls_resets{};
+    std::atomic<std::uint64_t> discord_media_tls_response_timeouts{};
     std::atomic<std::uint64_t> youtube_tls_responses{};
     std::atomic<std::uint64_t> youtube_tls_alerts{};
     std::atomic<std::uint64_t> youtube_tls_resets{};
@@ -479,6 +484,8 @@ struct PacketEngine::Impl {
         };
         if (hosts.matches_discord(attempt->second.host))
             record_failure(discord_tls_alerts, discord_tls_resets, discord_tls_response_timeouts);
+        if (hosts.matches_discord_media(attempt->second.host))
+            record_failure(discord_media_tls_alerts, discord_media_tls_resets, discord_media_tls_response_timeouts);
         if (hosts.matches_youtube(attempt->second.host))
             record_failure(youtube_tls_alerts, youtube_tls_resets, youtube_tls_response_timeouts);
         auto& state = strategies[attempt->second.host];
@@ -493,6 +500,8 @@ struct PacketEngine::Impl {
         if (attempt == attempts.end()) return;
         if (hosts.matches_discord(attempt->second.host))
             discord_tls_responses.fetch_add(1U, std::memory_order_relaxed);
+        if (hosts.matches_discord_media(attempt->second.host))
+            discord_media_tls_responses.fetch_add(1U, std::memory_order_relaxed);
         if (hosts.matches_youtube(attempt->second.host))
             youtube_tls_responses.fetch_add(1U, std::memory_order_relaxed);
         auto& state = strategies[attempt->second.host];
@@ -511,6 +520,8 @@ struct PacketEngine::Impl {
             if (packet.ipv4 != nullptr && WinDivertHelperNtohs(packet.ipv4->Id) <= 1U) {
                 if (hosts.matches_discord(attempt->second.host))
                     discord_tls_resets.fetch_add(1U, std::memory_order_relaxed);
+                if (hosts.matches_discord_media(attempt->second.host))
+                    discord_media_tls_resets.fetch_add(1U, std::memory_order_relaxed);
                 if (hosts.matches_youtube(attempt->second.host))
                     youtube_tls_resets.fetch_add(1U, std::memory_order_relaxed);
             }
@@ -634,6 +645,8 @@ struct PacketEngine::Impl {
         domains_matched.fetch_add(1U, std::memory_order_relaxed);
         if (hosts.matches_discord(parsed_hello.hostname))
             discord_tls_matches.fetch_add(1U, std::memory_order_relaxed);
+        if (hosts.matches_discord_media(parsed_hello.hostname))
+            discord_media_tls_matches.fetch_add(1U, std::memory_order_relaxed);
         if (hosts.matches_youtube(parsed_hello.hostname))
             youtube_tls_matches.fetch_add(1U, std::memory_order_relaxed);
         auto& state = strategies[parsed_hello.hostname];
@@ -1001,6 +1014,11 @@ PacketEngineStats PacketEngine::stats() const noexcept {
     value.discord_tls_alerts = impl_->discord_tls_alerts.load(std::memory_order_relaxed);
     value.discord_tls_resets = impl_->discord_tls_resets.load(std::memory_order_relaxed);
     value.discord_tls_response_timeouts = impl_->discord_tls_response_timeouts.load(std::memory_order_relaxed);
+    value.discord_media_tls_matches = impl_->discord_media_tls_matches.load(std::memory_order_relaxed);
+    value.discord_media_tls_responses = impl_->discord_media_tls_responses.load(std::memory_order_relaxed);
+    value.discord_media_tls_alerts = impl_->discord_media_tls_alerts.load(std::memory_order_relaxed);
+    value.discord_media_tls_resets = impl_->discord_media_tls_resets.load(std::memory_order_relaxed);
+    value.discord_media_tls_response_timeouts = impl_->discord_media_tls_response_timeouts.load(std::memory_order_relaxed);
     value.youtube_tls_responses = impl_->youtube_tls_responses.load(std::memory_order_relaxed);
     value.youtube_tls_alerts = impl_->youtube_tls_alerts.load(std::memory_order_relaxed);
     value.youtube_tls_resets = impl_->youtube_tls_resets.load(std::memory_order_relaxed);
