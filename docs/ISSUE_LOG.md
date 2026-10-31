@@ -311,3 +311,7 @@ Verbatim latest snapshots supplied by the user:
 ### Follow-up
 
 The user should confirm whether the desktop client still shows the red RTC error during this interval. If it does, the next sample needs to distinguish post-discovery voice-media traffic from unrelated system UDP; the current counters do not expose process identity or media-session state.
+
+### User clarification: VPN state changed during this sample
+
+The user clarified that the VPN was initially left on and was disabled later. Therefore the 20:18 interval mixes both routing states. Its 8 direct and 2 tunnel discovery requests cannot be assigned to a precise point in the interval, and the 10 protocol replies / 10 UDP reply-flow matches are aggregate counts without a direct-versus-tunnel split. Do not use this sample to conclude that the no-VPN route alone completed discovery. Repeat with the VPN disabled before starting ScpDPI; start the service once and leave it running for the full sample.
