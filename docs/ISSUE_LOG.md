@@ -249,3 +249,22 @@ Verbatim snapshots supplied by the user:
 
 - This was a log/report-only update; no source or installed binary changed.
 - The counters still cannot distinguish Discord desktop from browser or other processes. A clean diagnostic run should start the service once, test only the desktop app, and capture the next periodic snapshot without restarting the service.
+
+## 2026-10-31 20:08 — Service restarted twice; no traffic snapshot
+
+The user supplied two fresh service startup sequences, at 20:08:18 and 20:08:30. Both diagnostic snapshots are startup snapshots with all traffic counters at zero. The second start came about 12 seconds after the first, so the counters were reset before a useful one-minute traffic interval was captured. This excerpt contains no evidence about a Discord connection attempt and does not change the previous diagnosis.
+
+Verbatim new lines supplied by the user:
+
+```text
+[2026-10-31 20:08:18.607] [scpdpi] [info] ScpDPI service initialized with profile default
+[2026-10-31 20:08:19.232] [scpdpi] [info] DPI packet processor started
+[2026-10-31 20:08:19.235] [scpdpi] [info] Diagnostic snapshot: interfaces=4 routes=32 vpn_candidates=1 dpi_enabled=true dpi_running=true dpi_error= packets=0 tcp_tls_candidates=0 tcp_tls_tunnel_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 discord_tls_matches=0 youtube_tls_matches=0 discord_tls_rx=0 discord_tls_alerts=0 discord_tls_resets=0 discord_tls_response_timeouts=0 discord_media_tls_matches=0 discord_media_tls_rx=0 discord_media_tls_alerts=0 discord_media_tls_resets=0 discord_media_tls_response_timeouts=0 youtube_tls_rx=0 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=0 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_responses=0 stun_binding_requests=0 stun_binding_success_responses=0 stun_binding_error_responses=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=2 strategy_changes=0
+[2026-10-31 20:08:30.605] [scpdpi] [info] ScpDPI service initialized with profile default
+[2026-10-31 20:08:31.249] [scpdpi] [info] DPI packet processor started
+[2026-10-31 20:08:31.251] [scpdpi] [info] Diagnostic snapshot: interfaces=2 routes=17 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=0 tcp_tls_candidates=0 tcp_tls_tunnel_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 discord_tls_matches=0 youtube_tls_matches=0 discord_tls_rx=0 discord_tls_alerts=0 discord_tls_resets=0 discord_tls_response_timeouts=0 discord_media_tls_matches=0 discord_media_tls_rx=0 discord_media_tls_alerts=0 discord_media_tls_resets=0 discord_media_tls_response_timeouts=0 youtube_tls_rx=0 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=0 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_responses=0 stun_binding_requests=0 stun_binding_success_responses=0 stun_binding_error_responses=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=0 strategy_changes=0
+```
+
+### Follow-up
+
+For a useful sample, leave the service running through the next periodic snapshot after attempting voice in the desktop app. Avoid reopening the console if that causes another service restart.
