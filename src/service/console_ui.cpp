@@ -36,7 +36,7 @@ void print_summary(const Json& response) {
     if (dpi.value("packets_seen", std::uint64_t{}) != 0U || dpi.value("domains_matched", std::uint64_t{}) != 0U) {
         std::cout << "  Packets inspected: " << dpi.value("packets_seen", std::uint64_t{})
                   << "  |  outbound TLS: " << dpi.value("tcp_443_outbound", std::uint64_t{})
-                  << "  (VPN: " << dpi.value("tcp_443_tunnel", std::uint64_t{}) << ")"
+                  << "  (tunnel: " << dpi.value("tcp_443_tunnel", std::uint64_t{}) << ")"
                   << "  |  ClientHello parsed: " << dpi.value("tls_hellos_parsed", std::uint64_t{}) << '\n'
                   << "  Listed TLS hosts: " << dpi.value("domains_matched", std::uint64_t{})
                   << "  |  unlisted: " << dpi.value("tls_hellos_unlisted", std::uint64_t{})
@@ -45,12 +45,21 @@ void print_summary(const Json& response) {
                   << '/' << dpi.value("resegment_failures", std::uint64_t{})
                   << "  |  reinject failures: " << dpi.value("packet_send_failures", std::uint64_t{})
                   << "  |  split packets: " << dpi.value("packets_resegmented", std::uint64_t{})
+                  << "  |  Discord TLS matches: " << dpi.value("discord_tls_matches", std::uint64_t{})
                   << "  |  listed QUIC fallbacks: " << dpi.value("quic_udp_443_dropped", std::uint64_t{})
+                  << "  (Discord: " << dpi.value("discord_quic_fallbacks", std::uint64_t{}) << ')'
                   << "  |  filtered passive resets: " << dpi.value("passive_resets_dropped", std::uint64_t{})
-                  << "  |  VPN interfaces: " << dpi.value("tunnel_interfaces", std::uint64_t{}) << '\n'
+                  << "  |  Tunnel interfaces: " << dpi.value("tunnel_interfaces", std::uint64_t{}) << '\n'
                   << "  TLS ports inspected: " << dpi.value("tcp_tls_candidates_outbound", std::uint64_t{})
-                  << "  (VPN: " << dpi.value("tcp_tls_candidates_tunnel", std::uint64_t{}) << ')'
-                  << "  |  Discord/STUN requests: " << dpi.value("voice_udp_requests", std::uint64_t{})
+                  << "  (tunnel: " << dpi.value("tcp_tls_candidates_tunnel", std::uint64_t{}) << ')'
+                  << "  |  UDP/443 candidates: " << dpi.value("udp_443_candidates", std::uint64_t{})
+                  << "  (tunnel: " << dpi.value("udp_443_tunnel_candidates", std::uint64_t{}) << ')'
+                  << "  |  Voice UDP port candidates: " << dpi.value("voice_udp_candidate_packets", std::uint64_t{})
+                  << "  (tunnel: " << dpi.value("voice_udp_tunnel_candidate_packets", std::uint64_t{}) << ')'
+                  << "  |  Discord discovery/STUN requests: " << dpi.value("voice_udp_requests", std::uint64_t{})
+                  << "  (direct/tunnel: " << dpi.value("voice_udp_direct_requests", std::uint64_t{})
+                  << '/' << dpi.value("voice_udp_tunnel_requests", std::uint64_t{}) << ')'
+                  << "  |  Discord IP discovery: " << dpi.value("discord_ip_discovery_requests", std::uint64_t{})
                   << "  |  UDP decoys sent/failed: " << dpi.value("voice_udp_decoys_sent", std::uint64_t{})
                   << '/' << dpi.value("voice_udp_decoy_failures", std::uint64_t{}) << '\n';
     }

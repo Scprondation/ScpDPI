@@ -16,6 +16,8 @@ If a site still does not load, check whether its hostname resolves correctly and
 
 After ScpDPI segments a TLS ClientHello for a listed host, it suppresses an inbound IPv4 TCP reset only when the reset belongs to that active connection attempt and its IP ID is 0 or 1, a common passive-DPI signature on some Russian networks. A suppressed reset leaves the attempt open for a real server response; other resets advance the existing per-host strategy and pass through. Resets outside that narrow match pass through. IPv6 resets and IPv4 resets with other IP IDs are not filtered. The count appears in `dpi status` and in periodic diagnostic log entries.
 
+For UDP/443, the egress interface of each packet determines whether it is direct or tunneled. The presence of an unrelated tunnel adapter does not disable QUIC processing on direct interfaces.
+
 ## Interface discovery
 
 - Windows: `GetAdaptersAddresses(AF_UNSPEC)` supplies names, description, state, MTU, MAC, type and assigned IPv4/IPv6 addresses.
@@ -34,7 +36,7 @@ Because policy routing, multiple tables, per-process VPNs, source-specific route
 
 ## VPN detection
 
-Detection combines OS virtual/tunnel type, interface name/description hints and routes using the interface. Confidence describes evidence for a tunnel-like interface, not a protocol. VLESS + Reality, Hysteria 2, Xray proxy mode and other user-space proxies may leave no dedicated interface and cannot be identified through this module. Process inspection/integration is not implemented.
+Detection combines OS virtual/tunnel type, interface name/description hints and routes using the interface. Teredo is reported as a system tunnel, not a VPN candidate. Confidence describes evidence for a tunnel-like interface, not a protocol. VLESS + Reality, Hysteria 2, Xray proxy mode and other user-space proxies may leave no dedicated interface and cannot be identified through this module. Process inspection/integration is not implemented.
 
 ## Diagnostics
 

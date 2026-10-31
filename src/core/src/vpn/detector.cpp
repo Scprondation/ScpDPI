@@ -24,6 +24,8 @@ std::vector<VpnInterface> VpnDetector::detect(const std::vector<NetworkInterface
     std::vector<VpnInterface> result;
     for (const auto& iface : interfaces) {
         if (iface.kind == "loopback") continue;
+        const auto metadata = lower(iface.name + " " + iface.description);
+        if (metadata.find("teredo") != std::string::npos) continue;
         const auto route_count = static_cast<std::size_t>(std::count_if(routes.begin(), routes.end(), [&](const Route& route) {
             return route.interface_index == iface.index;
         }));

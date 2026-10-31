@@ -35,12 +35,38 @@ The RTC symptom has a different transport requirement. ScpDPI does not proxy or 
 
 - The `scpdpi_service` Release target compiled successfully with MSVC 14.52 in the Visual Studio 2026 x64 developer environment. Output: `out/build/windows-console-release-vpnfix/src/service/scpdpi_service.exe` (539,136 bytes).
 - An initial build attempt from a plain PowerShell session failed before compiling because the MSVC standard-library include environment was absent; rerunning from `vcvars64.bat` succeeded.
-- No tests were run. No live Discord browser or RTC test was run either.
-- No live Discord browser or RTC test was run. No packet payload capture was taken.
+- No tests or live Discord browser/RTC test were run. No packet payload capture was taken.
 - After the new build is installed and the service has run, capture `dpi status` after trying Discord web once and RTC once, along with `%LOCALAPPDATA%\ScpDPI\scpdpi.log`. Avoid including unrelated personal traffic details when sharing logs.
+
+## 2026-10-31 19:16–19:17 — User supplied runtime report (VPN off)
+
+The user supplied two service snapshots and confirmed the VPN was off:
+
+- Startup: 4 interfaces, 32 routes, 2 VPN candidates, 2 tunnel interfaces; DPI enabled and running.
+- About one minute later: 3 interfaces, 23 routes, 1 VPN candidate, 1 tunnel interface; 3,755 packets inspected, 1,751 outbound TLS candidate packets, 84 ClientHello parses, 81 unlisted/invalid attempts, 0 timeouts, 19 listed-host matches, 75 split packets, 0 split/send failures, 0 passive resets filtered, 0 QUIC fallbacks, 6 voice discovery requests, 4 decoys sent, 0 decoy failures.
+- The previous interface report from this machine included a Teredo tunneling adapter. The current `tunnel_interfaces=1` with VPN disabled may be Teredo or another virtual adapter; the aggregate log does not identify it.
+
+Verbatim log excerpt supplied by the user:
+
+```text
+[2026-10-31 19:16:41.149] [scpdpi] [info] ScpDPI service initialized with profile default
+[2026-10-31 19:16:41.785] [scpdpi] [info] DPI packet processor started
+[2026-10-31 19:16:41.788] [scpdpi] [info] Diagnostic snapshot: interfaces=4 routes=32 vpn_candidates=2 dpi_enabled=true dpi_running=true packets=0 tcp_tls_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 quic_fallbacks=0 voice_discovery_requests=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=2 strategy_changes=0
+[2026-10-31 19:17:41.988] [scpdpi] [info] Diagnostic snapshot: interfaces=3 routes=23 vpn_candidates=1 dpi_enabled=true dpi_running=true dpi_error= packets=3755 tcp_tls_candidates=1751 tls_parsed=84 tls_unlisted=81 tls_timeouts=0 listed_tls_matches=19 split_packets=75 split_failures=0 send_failures=0 passive_resets_dropped=0 quic_fallbacks=0 voice_discovery_requests=6 udp_decoys_sent=4 udp_decoys_failed=0 tunnel_interfaces=1 strategy_changes=0
+```
+
+Interpretation: the packet processor was active and did handle listed TLS flows; those aggregate counts do not establish that the 19 matches were Discord. The zero reset count means the new passive-reset filter did not observe its narrow signature. Four sent UDP decoys show successful local reinjection only; they do not confirm end-to-end voice media. Discord's Russian help article lists “RTC Connecting” among client-side connection errors and says VPNs must support UDP.
+
+Code inspection found that QUIC handling was disabled globally whenever any tunnel adapter existed (`tunnel || has_tunnels()`), even for packets routed directly over Ethernet. With VPN disabled but a tunnel adapter present, this can explain why listed QUIC never fell back to TCP. The global gate is removed in favor of the egress interface of each packet. Teredo is excluded from VPN candidate reporting. New aggregate counters distinguish Discord TLS/QUIC from other listed sites and direct UDP candidates from tunnel-routed candidates, without recording hostnames or packet contents. Generic voice-port candidates are labeled separately from parsed Discord IP discovery/STUN requests.
+
+### Follow-up verification
+
+- The `scpdpi_service` Release target compiled successfully with MSVC 14.52 after the per-packet QUIC route change, Teredo classification correction, and diagnostic counters. Binary: `out/build/windows-console-release-vpnfix/src/service/scpdpi_service.exe` (545,280 bytes).
+- `git diff --check` reported no whitespace errors. No tests or live Discord browser/RTC test were run.
+- The user's browser/RTC result still needs confirmation after installing that build. If RTC continues to fail directly, ScpDPI cannot substitute for a UDP-capable route or VPN.
 
 ## References
 
 - [GoodbyeDPI official repository and behavior description](https://github.com/ValdikSS/GoodbyeDPI)
 - [GoodbyeDPI published license](https://github.com/ValdikSS/GoodbyeDPI/blob/master/LICENSE)
-- [Discord voice connection troubleshooting](https://support.discord.com/hc/en-us/articles/115001310031-Voice-Connection-Errors)
+- [Discord: Ошибки голосового соединения](https://support.discord.com/hc/ru/articles/115001310031-%D0%9E%D1%88%D0%B8%D0%B1%D0%BA%D0%B8-%D0%B3%D0%BE%D0%BB%D0%BE%D1%81%D0%BE%D0%B2%D0%BE%D0%B3%D0%BE-%D1%81%D0%BE%D0%B5%D0%B4%D0%B8%D0%BD%D0%B5%D0%BD%D0%B8%D1%8F)

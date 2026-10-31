@@ -312,8 +312,17 @@ struct PacketEngine::Impl {
     std::atomic<std::uint64_t> packet_send_failures{};
     std::atomic<std::uint64_t> packets_resegmented{};
     std::atomic<std::uint64_t> domains_matched{};
+    std::atomic<std::uint64_t> discord_tls_matches{};
+    std::atomic<std::uint64_t> udp_443_candidates{};
+    std::atomic<std::uint64_t> udp_443_tunnel_candidates{};
     std::atomic<std::uint64_t> quic_udp_443_dropped{};
+    std::atomic<std::uint64_t> discord_quic_fallbacks{};
+    std::atomic<std::uint64_t> voice_udp_candidate_packets{};
+    std::atomic<std::uint64_t> voice_udp_tunnel_candidate_packets{};
     std::atomic<std::uint64_t> voice_udp_requests{};
+    std::atomic<std::uint64_t> voice_udp_direct_requests{};
+    std::atomic<std::uint64_t> voice_udp_tunnel_requests{};
+    std::atomic<std::uint64_t> discord_ip_discovery_requests{};
     std::atomic<std::uint64_t> voice_udp_decoys_sent{};
     std::atomic<std::uint64_t> voice_udp_decoy_failures{};
     std::atomic<std::uint64_t> passive_resets_dropped{};
@@ -341,11 +350,6 @@ struct PacketEngine::Impl {
         if (address.Network.IfIdx == 0U) return false;
         std::lock_guard lock(tunnel_mutex);
         return tunnels.contains(address.Network.IfIdx);
-    }
-
-    bool has_tunnels() const {
-        std::lock_guard lock(tunnel_mutex);
-        return !tunnels.empty();
     }
 
     bool mark_voice_decoy(const std::string& key, Clock::time_point now) {
@@ -520,6 +524,8 @@ struct PacketEngine::Impl {
             return;
         }
         domains_matched.fetch_add(1U, std::memory_order_relaxed);
+        if (hosts.matches_discord(parsed_hello.hostname))
+            discord_tls_matches.fetch_add(1U, std::memory_order_relaxed);
         auto& state = strategies[parsed_hello.hostname];
         const std::size_t strategy = state.has_best ? state.best : state.next;
         const auto cuts = strategy_cuts(parsed_hello.sni_offset, parsed_hello.sni_length, hello.stream.size(), strategy);
@@ -644,21 +650,35 @@ struct PacketEngine::Impl {
         if (parsed.udp != nullptr && address.Outbound != 0U) {
             const auto destination_port = WinDivertHelperNtohs(parsed.udp->DstPort);
             if (destination_port == 443U) {
+                udp_443_candidates.fetch_add(1U, std::memory_order_relaxed);
+                if (tunnel) udp_443_tunnel_candidates.fetch_add(1U, std::memory_order_relaxed);
                 // A direct QUIC Initial is dropped only when its authenticated
                 // ClientHello identifies a listed site. Unknown QUIC and every
                 // packet on a recognized tunnel keep their original path.
-                const auto server_name = tunnel || has_tunnels() ? std::nullopt :
+                // Use the route of this packet. An unrelated tunnel adapter
+                // (for example Teredo) must not disable QUIC handling globally.
+                const auto server_name = tunnel ? std::nullopt :
                     quic_initial_server_name(std::span<const std::uint8_t>(parsed.payload, parsed.payload_length));
-                if (server_name && hosts.matches(*server_name))
+                if (server_name && hosts.matches(*server_name)) {
                     quic_udp_443_dropped.fetch_add(1U, std::memory_order_relaxed);
-                else
+                    if (hosts.matches_discord(*server_name))
+                        discord_quic_fallbacks.fetch_add(1U, std::memory_order_relaxed);
+                } else
                     (void)send_packet(bytes, address);
                 return;
+            }
+            if (is_voice_candidate_port(destination_port)) {
+                voice_udp_candidate_packets.fetch_add(1U, std::memory_order_relaxed);
+                if (tunnel) voice_udp_tunnel_candidate_packets.fetch_add(1U, std::memory_order_relaxed);
             }
             if (is_voice_candidate_port(destination_port) && parsed.payload != nullptr && parsed.payload_length > 0U) {
                 const auto kind = identify_voice_discovery(std::span<const std::uint8_t>(parsed.payload, parsed.payload_length));
                 if (kind != VoiceDiscoveryKind::none) {
                     voice_udp_requests.fetch_add(1U, std::memory_order_relaxed);
+                    if (tunnel) voice_udp_tunnel_requests.fetch_add(1U, std::memory_order_relaxed);
+                    else voice_udp_direct_requests.fetch_add(1U, std::memory_order_relaxed);
+                    if (kind == VoiceDiscoveryKind::discord)
+                        discord_ip_discovery_requests.fetch_add(1U, std::memory_order_relaxed);
                     if (!tunnel) {
                         auto decoy = bytes;
                         const auto payload = std::span<const std::uint8_t>(parsed.payload, parsed.payload_length);
@@ -843,8 +863,17 @@ PacketEngineStats PacketEngine::stats() const noexcept {
     value.packet_send_failures = impl_->packet_send_failures.load(std::memory_order_relaxed);
     value.packets_resegmented = impl_->packets_resegmented.load(std::memory_order_relaxed);
     value.domains_matched = impl_->domains_matched.load(std::memory_order_relaxed);
+    value.discord_tls_matches = impl_->discord_tls_matches.load(std::memory_order_relaxed);
+    value.udp_443_candidates = impl_->udp_443_candidates.load(std::memory_order_relaxed);
+    value.udp_443_tunnel_candidates = impl_->udp_443_tunnel_candidates.load(std::memory_order_relaxed);
     value.quic_udp_443_dropped = impl_->quic_udp_443_dropped.load(std::memory_order_relaxed);
+    value.discord_quic_fallbacks = impl_->discord_quic_fallbacks.load(std::memory_order_relaxed);
+    value.voice_udp_candidate_packets = impl_->voice_udp_candidate_packets.load(std::memory_order_relaxed);
+    value.voice_udp_tunnel_candidate_packets = impl_->voice_udp_tunnel_candidate_packets.load(std::memory_order_relaxed);
     value.voice_udp_requests = impl_->voice_udp_requests.load(std::memory_order_relaxed);
+    value.voice_udp_direct_requests = impl_->voice_udp_direct_requests.load(std::memory_order_relaxed);
+    value.voice_udp_tunnel_requests = impl_->voice_udp_tunnel_requests.load(std::memory_order_relaxed);
+    value.discord_ip_discovery_requests = impl_->discord_ip_discovery_requests.load(std::memory_order_relaxed);
     value.voice_udp_decoys_sent = impl_->voice_udp_decoys_sent.load(std::memory_order_relaxed);
     value.voice_udp_decoy_failures = impl_->voice_udp_decoy_failures.load(std::memory_order_relaxed);
     value.passive_resets_dropped = impl_->passive_resets_dropped.load(std::memory_order_relaxed);

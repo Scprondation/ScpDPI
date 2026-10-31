@@ -35,21 +35,36 @@ bool valid_hostname(std::string_view value) {
     return label_length > 0U && label_length <= 63U && previous != '-';
 }
 
+bool matches_host_set(const std::unordered_set<std::string>& hosts, std::string_view hostname) {
+    std::string lowered(hostname);
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (hosts.contains(lowered)) return true;
+    std::size_t dot = lowered.find('.');
+    while (dot != std::string::npos) {
+        if (hosts.contains(lowered.substr(dot + 1U))) return true;
+        dot = lowered.find('.', dot + 1U);
+    }
+    return false;
+}
+
 } // namespace
 
 Result<void> HostLists::load(const std::filesystem::path& directory) {
     hosts_.clear();
+    discord_hosts_.clear();
     const auto registry = load_file(directory / L"russia-registry-domains.txt", true);
     if (!registry) return registry;
     const auto youtube = load_file(directory / L"russia-youtube.txt", true);
     if (!youtube) return youtube;
-    const auto discord = load_file(directory / L"russia-discord.txt", true);
+    const auto discord = load_file(directory / L"russia-discord.txt", true, true);
     if (!discord) return discord;
     if (hosts_.empty()) return Result<void>::failure({"The Russian DPI domain lists are empty", 0});
     return Result<void>::success();
 }
 
-Result<void> HostLists::load_file(const std::filesystem::path& path, bool required) {
+Result<void> HostLists::load_file(const std::filesystem::path& path, bool required, bool discord_list) {
     std::ifstream input(path, std::ios::binary);
     if (!input) {
         if (!required) return Result<void>::success();
@@ -70,6 +85,7 @@ Result<void> HostLists::load_file(const std::filesystem::path& path, bool requir
         std::transform(hostname.begin(), hostname.end(), hostname.begin(), [](unsigned char c) {
             return static_cast<char>(std::tolower(c));
         });
+        if (discord_list) discord_hosts_.insert(hostname);
         hosts_.insert(std::move(hostname));
         if (hosts_.size() > max_unique_hosts)
             return Result<void>::failure({"The Russian DPI host list exceeds the 1000000-domain safety limit", 0});
@@ -79,17 +95,11 @@ Result<void> HostLists::load_file(const std::filesystem::path& path, bool requir
 }
 
 bool HostLists::matches(std::string_view hostname) const {
-    std::string lowered(hostname);
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
-    if (hosts_.contains(lowered)) return true;
-    std::size_t dot = lowered.find('.');
-    while (dot != std::string::npos) {
-        if (hosts_.contains(lowered.substr(dot + 1U))) return true;
-        dot = lowered.find('.', dot + 1U);
-    }
-    return false;
+    return matches_host_set(hosts_, hostname);
+}
+
+bool HostLists::matches_discord(std::string_view hostname) const {
+    return matches_host_set(discord_hosts_, hostname);
 }
 
 } // namespace scpdpi::dpi

@@ -14,11 +14,13 @@ class HostLists {
 public:
     [[nodiscard]] Result<void> load(const std::filesystem::path& directory);
     [[nodiscard]] bool matches(std::string_view hostname) const;
+    [[nodiscard]] bool matches_discord(std::string_view hostname) const;
     [[nodiscard]] std::size_t size() const noexcept { return hosts_.size(); }
 
 private:
-    [[nodiscard]] Result<void> load_file(const std::filesystem::path& path, bool required);
+    [[nodiscard]] Result<void> load_file(const std::filesystem::path& path, bool required, bool discord_list = false);
     std::unordered_set<std::string> hosts_;
+    std::unordered_set<std::string> discord_hosts_;
 };
 
 } // namespace scpdpi::dpi
