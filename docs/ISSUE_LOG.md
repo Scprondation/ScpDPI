@@ -161,6 +161,28 @@ The user clarified that the desktop client starts connecting and then shows a re
 - `git diff --check` reported no whitespace errors. No tests or live Discord app session were run.
 - The user needs to install/run this build and try the desktop app by itself for at least one minute; the 19:47 log was only the startup snapshot from the previous diagnostic build.
 
+## 2026-10-31 19:53–19:55 — Desktop voice connection still fails
+
+The user reports the desktop client starts connecting and then shows a red error. In the supplied run, Discord TLS receives were observed for every listed Discord ClientHello counted (12/12 at 19:54 and 29/29 at 19:55), with no Discord TLS alert, reset, or response timeout. The packet engine also observed 4 then 7 direct voice discovery requests and sent the same number of decoys without send failures. `discord_ip_discovery=0` means none of these was the fixed Discord IP-discovery message; given the current parser, the observed requests are STUN Binding Requests. `voice_udp_tunnel_candidate_packets=0` and `udp443_tunnel_candidates=0` show the counted candidates were not routed through an identified tunnel. These counters do not show whether the STUN servers returned a response.
+
+The user-facing log added in commit `fb6c234` counted responses only for Discord's fixed 74-byte IP-discovery exchange. Since this run uses STUN instead, the diagnostics have been extended to capture only inbound STUN Binding Success/Error response headers (UDP payload at least 20 bytes, response type and magic cookie), then validate the length/cookie and correlate the 96-bit transaction ID and reversed UDP tuple to an observed request. Response packets remain unchanged. New counters are `stun_binding_requests`, `stun_binding_success_responses`, and `stun_binding_error_responses`.
+
+Verbatim latest snapshots supplied by the user:
+
+```text
+[2026-10-31 19:53:22.279] [scpdpi] [info] ScpDPI service initialized with profile default
+[2026-10-31 19:53:22.903] [scpdpi] [info] DPI packet processor started
+[2026-10-31 19:53:22.905] [scpdpi] [info] Diagnostic snapshot: interfaces=2 routes=17 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=0 tcp_tls_candidates=0 tcp_tls_tunnel_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 discord_tls_matches=0 youtube_tls_matches=0 discord_tls_rx=0 discord_tls_alerts=0 discord_tls_resets=0 discord_tls_response_timeouts=0 youtube_tls_rx=0 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=0 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_responses=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=0 strategy_changes=0
+[2026-10-31 19:54:23.114] [scpdpi] [info] Diagnostic snapshot: interfaces=3 routes=23 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=10391 tcp_tls_candidates=4357 tcp_tls_tunnel_candidates=0 tls_parsed=70 tls_unlisted=55 tls_timeouts=4 listed_tls_matches=25 discord_tls_matches=12 youtube_tls_matches=6 discord_tls_rx=12 discord_tls_alerts=0 discord_tls_resets=0 discord_tls_response_timeouts=0 youtube_tls_rx=5 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=1 split_packets=100 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=244 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=8 voice_udp_tunnel_candidates=0 voice_discovery_requests=4 voice_discovery_direct=4 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_responses=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=4 udp_decoys_failed=0 tunnel_interfaces=1 strategy_changes=1
+[2026-10-31 19:55:23.302] [scpdpi] [info] Diagnostic snapshot: interfaces=3 routes=23 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=16755 tcp_tls_candidates=7570 tcp_tls_tunnel_candidates=0 tls_parsed=113 tls_unlisted=82 tls_timeouts=4 listed_tls_matches=51 discord_tls_matches=29 youtube_tls_matches=6 discord_tls_rx=29 discord_tls_alerts=0 discord_tls_resets=0 discord_tls_response_timeouts=0 youtube_tls_rx=5 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=1 split_packets=203 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=292 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=25 voice_udp_tunnel_candidates=0 voice_discovery_requests=7 voice_discovery_direct=7 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_responses=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=7 udp_decoys_failed=0 tunnel_interfaces=1 strategy_changes=1
+```
+
+### Follow-up verification
+
+- MSVC 14.52 Release build of `scpdpi_service` succeeded at `out/build/windows-console-release-vpnfix/src/service/scpdpi_service.exe` with the STUN response counters.
+- `git diff --check` reported no whitespace errors. No tests or live Discord app session were run.
+- The previous log is consistent with a UDP/STUN-stage failure but cannot prove whether a response was blocked or whether a later voice stage failed. Test the desktop app alone with this build for at least one minute and inspect the three new STUN counters.
+
 ## References
 
 - [GoodbyeDPI official repository and behavior description](https://github.com/ValdikSS/GoodbyeDPI)

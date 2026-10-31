@@ -73,6 +73,10 @@ void print_summary(const Json& response) {
                   << "  |  Discord IP discovery: " << dpi.value("discord_ip_discovery_requests", std::uint64_t{})
                   << "  (responses: " << dpi.value("discord_ip_discovery_responses", std::uint64_t{}) << ')'
                   << "  (other UDP ports: " << dpi.value("discord_ip_discovery_other_ports", std::uint64_t{}) << ')'
+                  << "  |  STUN binding request/success/error: "
+                  << dpi.value("stun_binding_requests", std::uint64_t{}) << '/'
+                  << dpi.value("stun_binding_success_responses", std::uint64_t{}) << '/'
+                  << dpi.value("stun_binding_error_responses", std::uint64_t{})
                   << "  |  UDP decoys sent/failed: " << dpi.value("voice_udp_decoys_sent", std::uint64_t{})
                   << '/' << dpi.value("voice_udp_decoy_failures", std::uint64_t{}) << '\n';
     }
