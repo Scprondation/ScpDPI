@@ -203,6 +203,11 @@ VoiceDiscoveryKind identify_voice_discovery(std::span<const std::uint8_t> payloa
     return VoiceDiscoveryKind::none;
 }
 
+bool is_discord_ip_discovery_response(std::span<const std::uint8_t> payload) {
+    return payload.size() == 74U && read_be16(payload.data()) == 2U &&
+        read_be16(payload.data() + 2U) == 70U && read_be32(payload.data() + 4U) != 0U;
+}
+
 bool make_voice_decoy(std::span<const std::uint8_t> original, VoiceDiscoveryKind kind,
                       std::vector<std::uint8_t>& packet, std::size_t payload_offset) {
     const std::size_t mutation_offset = kind == VoiceDiscoveryKind::discord ? 4U : 8U;
@@ -230,6 +235,19 @@ std::string voice_discovery_key(const ParsedPacket& packet, std::span<const std:
     const std::size_t id_length = kind == VoiceDiscoveryKind::discord ? 4U : 12U;
     if (id_offset > payload.size() || id_length > payload.size() - id_offset) return {};
     key.append(reinterpret_cast<const char*>(payload.data() + id_offset), id_length);
+    return key;
+}
+
+std::string reverse_voice_discovery_key(std::string key) {
+    if (key.empty()) return key;
+    const std::size_t address_size = key.front() == '6' ? 16U : 4U;
+    const std::size_t address_offset = 1U;
+    const std::size_t ports_offset = address_offset + 2U * address_size;
+    if (key.size() < ports_offset + 8U) return {};
+    for (std::size_t i = 0U; i < address_size; ++i)
+        std::swap(key[address_offset + i], key[address_offset + address_size + i]);
+    std::swap(key[ports_offset], key[ports_offset + 2U]);
+    std::swap(key[ports_offset + 1U], key[ports_offset + 3U]);
     return key;
 }
 
@@ -301,6 +319,7 @@ struct PacketEngine::Impl {
     std::unordered_map<std::string, Attempt> attempts;
     std::unordered_map<std::string, StrategyState> strategies;
     std::unordered_map<std::string, Clock::time_point> voice_decoy_keys;
+    std::unordered_map<std::string, Clock::time_point> pending_voice_discoveries;
     std::atomic<std::uint64_t> packets_seen{};
     std::atomic<std::uint64_t> tcp_443_outbound{};
     std::atomic<std::uint64_t> tcp_443_tunnel{};
@@ -335,6 +354,7 @@ struct PacketEngine::Impl {
     std::atomic<std::uint64_t> voice_udp_direct_requests{};
     std::atomic<std::uint64_t> voice_udp_tunnel_requests{};
     std::atomic<std::uint64_t> discord_ip_discovery_requests{};
+    std::atomic<std::uint64_t> discord_ip_discovery_responses{};
     std::atomic<std::uint64_t> discord_ip_discovery_other_ports{};
     std::atomic<std::uint64_t> voice_udp_decoys_sent{};
     std::atomic<std::uint64_t> voice_udp_decoy_failures{};
@@ -371,6 +391,27 @@ struct PacketEngine::Impl {
         if (voice_decoy_keys.contains(key) || voice_decoy_keys.size() >= max_voice_decoy_keys) return false;
         voice_decoy_keys.emplace(key, now);
         return true;
+    }
+
+    void track_voice_discovery(const std::string& key, Clock::time_point now) {
+        if (key.empty()) return;
+        std::lock_guard lock(flow_mutex);
+        if (pending_voice_discoveries.size() < max_voice_decoy_keys || pending_voice_discoveries.contains(key))
+            pending_voice_discoveries[key] = now;
+    }
+
+    void observe_voice_discovery_response(const ParsedPacket& packet) {
+        if (packet.payload == nullptr || !is_discord_ip_discovery_response(
+                std::span<const std::uint8_t>(packet.payload, packet.payload_length))) return;
+        const auto response_key = voice_discovery_key(packet,
+            std::span<const std::uint8_t>(packet.payload, packet.payload_length), VoiceDiscoveryKind::discord);
+        const auto request_key = reverse_voice_discovery_key(response_key);
+        if (request_key.empty()) return;
+        std::lock_guard lock(flow_mutex);
+        const auto request = pending_voice_discoveries.find(request_key);
+        if (request == pending_voice_discoveries.end()) return;
+        pending_voice_discoveries.erase(request);
+        discord_ip_discovery_responses.fetch_add(1U, std::memory_order_relaxed);
     }
 
     void refresh_tunnels() {
@@ -711,6 +752,9 @@ struct PacketEngine::Impl {
                     return;
                 }
             }
+            if (voice_kind == VoiceDiscoveryKind::discord)
+                track_voice_discovery(voice_discovery_key(parsed,
+                    std::span<const std::uint8_t>(parsed.payload, parsed.payload_length), voice_kind), Clock::now());
             if (is_voice_candidate_port(destination_port)) {
                 voice_udp_candidate_packets.fetch_add(1U, std::memory_order_relaxed);
                 if (tunnel) voice_udp_tunnel_candidate_packets.fetch_add(1U, std::memory_order_relaxed);
@@ -747,6 +791,11 @@ struct PacketEngine::Impl {
                     }
                 }
             }
+            (void)send_packet(bytes, address);
+            return;
+        }
+        if (parsed.udp != nullptr) {
+            observe_voice_discovery_response(parsed);
             (void)send_packet(bytes, address);
             return;
         }
@@ -795,6 +844,10 @@ struct PacketEngine::Impl {
             if (now - it->second >= voice_decoy_key_timeout) it = voice_decoy_keys.erase(it);
             else ++it;
         }
+        for (auto it = pending_voice_discoveries.begin(); it != pending_voice_discoveries.end();) {
+            if (now - it->second >= voice_decoy_key_timeout) it = pending_voice_discoveries.erase(it);
+            else ++it;
+        }
     }
 
     void run(std::stop_token stop) {
@@ -821,7 +874,7 @@ struct PacketEngine::Impl {
         const auto list_result = hosts.load(runtime_directory);
         if (!list_result) { set_error(list_result.error().message); return list_result; }
         refresh_tunnels();
-        constexpr char filter[] = "!impostor and !loopback and (tcp.DstPort == 80 or tcp.SrcPort == 80 or tcp.DstPort == 443 or tcp.SrcPort == 443 or tcp.DstPort == 2053 or tcp.SrcPort == 2053 or tcp.DstPort == 2083 or tcp.SrcPort == 2083 or tcp.DstPort == 2087 or tcp.SrcPort == 2087 or tcp.DstPort == 2096 or tcp.SrcPort == 2096 or tcp.DstPort == 8443 or tcp.SrcPort == 8443 or (outbound and ((udp.PayloadLength == 74 and udp.Payload[0] == 0 and udp.Payload[1] == 1 and udp.Payload[2] == 0 and udp.Payload[3] == 70 and udp.Payload32[1] != 0) or udp.DstPort == 443 or udp.DstPort == 3478 or udp.DstPort == 3479 or udp.DstPort == 5349 or udp.DstPort == 19302 or (udp.DstPort >= 19294 and udp.DstPort <= 19344) or (udp.DstPort >= 50000 and udp.DstPort <= 50100))))";
+        constexpr char filter[] = "!impostor and !loopback and (tcp.DstPort == 80 or tcp.SrcPort == 80 or tcp.DstPort == 443 or tcp.SrcPort == 443 or tcp.DstPort == 2053 or tcp.SrcPort == 2053 or tcp.DstPort == 2083 or tcp.SrcPort == 2083 or tcp.DstPort == 2087 or tcp.SrcPort == 2087 or tcp.DstPort == 2096 or tcp.SrcPort == 2096 or tcp.DstPort == 8443 or tcp.SrcPort == 8443 or (outbound and ((udp.PayloadLength == 74 and udp.Payload[0] == 0 and udp.Payload[1] == 1 and udp.Payload[2] == 0 and udp.Payload[3] == 70 and udp.Payload32[1] != 0) or udp.DstPort == 443 or udp.DstPort == 3478 or udp.DstPort == 3479 or udp.DstPort == 5349 or udp.DstPort == 19302 or (udp.DstPort >= 19294 and udp.DstPort <= 19344) or (udp.DstPort >= 50000 and udp.DstPort <= 50100))) or (inbound and udp.PayloadLength == 74 and udp.Payload[0] == 0 and udp.Payload[1] == 2 and udp.Payload[2] == 0 and udp.Payload[3] == 70 and udp.Payload32[1] != 0))";
         handle = WinDivertOpen(filter, WINDIVERT_LAYER_NETWORK, WINDIVERT_PRIORITY_HIGHEST, 0U);
         if (handle == INVALID_HANDLE_VALUE) {
             const DWORD code = GetLastError();
@@ -872,6 +925,7 @@ struct PacketEngine::Impl {
             for (auto& [key, hello] : pending) { (void)key; release_hello(hello); }
             pending.clear();
             voice_decoy_keys.clear();
+        pending_voice_discoveries.clear();
         }
         const BOOL closed = WinDivertClose(handle);
         const DWORD code = closed ? ERROR_SUCCESS : GetLastError();
@@ -928,6 +982,7 @@ PacketEngineStats PacketEngine::stats() const noexcept {
     value.voice_udp_direct_requests = impl_->voice_udp_direct_requests.load(std::memory_order_relaxed);
     value.voice_udp_tunnel_requests = impl_->voice_udp_tunnel_requests.load(std::memory_order_relaxed);
     value.discord_ip_discovery_requests = impl_->discord_ip_discovery_requests.load(std::memory_order_relaxed);
+    value.discord_ip_discovery_responses = impl_->discord_ip_discovery_responses.load(std::memory_order_relaxed);
     value.discord_ip_discovery_other_ports = impl_->discord_ip_discovery_other_ports.load(std::memory_order_relaxed);
     value.voice_udp_decoys_sent = impl_->voice_udp_decoys_sent.load(std::memory_order_relaxed);
     value.voice_udp_decoy_failures = impl_->voice_udp_decoy_failures.load(std::memory_order_relaxed);

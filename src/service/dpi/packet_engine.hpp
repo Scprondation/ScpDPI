@@ -45,6 +45,7 @@ struct PacketEngineStats {
     std::uint64_t voice_udp_direct_requests{};
     std::uint64_t voice_udp_tunnel_requests{};
     std::uint64_t discord_ip_discovery_requests{};
+    std::uint64_t discord_ip_discovery_responses{};
     std::uint64_t discord_ip_discovery_other_ports{};
     std::uint64_t voice_udp_decoys_sent{};
     std::uint64_t voice_udp_decoy_failures{};

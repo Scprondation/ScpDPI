@@ -153,6 +153,14 @@ Verbatim new startup line supplied by the user:
 [2026-10-31 19:47:38.238] [scpdpi] [info] Diagnostic snapshot: interfaces=3 routes=23 vpn_candidates=0 dpi_enabled=true dpi_running=true dpi_error= packets=0 tcp_tls_candidates=0 tcp_tls_tunnel_candidates=0 tls_parsed=0 tls_unlisted=0 tls_timeouts=0 listed_tls_matches=0 discord_tls_matches=0 youtube_tls_matches=0 discord_tls_rx=0 discord_tls_alerts=0 discord_tls_resets=0 discord_tls_response_timeouts=0 youtube_tls_rx=0 youtube_tls_alerts=0 youtube_tls_resets=0 youtube_tls_response_timeouts=0 split_packets=0 split_failures=0 send_failures=0 passive_resets_dropped=0 udp443_candidates=0 udp443_tunnel_candidates=0 quic_fallbacks=0 discord_quic_fallbacks=0 youtube_quic_fallbacks=0 voice_udp_port_candidates=0 voice_udp_tunnel_candidates=0 voice_discovery_requests=0 voice_discovery_direct=0 voice_discovery_tunnel=0 discord_ip_discovery=0 discord_ip_discovery_other_ports=0 udp_decoys_sent=0 udp_decoys_failed=0 tunnel_interfaces=1 strategy_changes=0
 ```
 
+The user clarified that the desktop client starts connecting and then shows a red error. Based on Discord's documented voice sequence, added a narrow inbound capture for the 74-byte Discord IP-discovery response (type 2, declared length 70, nonzero SSRC). The engine correlates it to an earlier request by reversed IP/UDP tuple and SSRC, then increments `discord_ip_discovery_responses`; response packets are reinjected unchanged. This distinguishes “request observed, no matching reply observed” from a completed IP-discovery exchange without recording IPs, ports, or payloads. It still does not tell whether the subsequent encrypted UDP media path works.
+
+### Follow-up verification
+
+- MSVC 14.52 Release build of `scpdpi_service` succeeded at `out/build/windows-console-release-vpnfix/src/service/scpdpi_service.exe`.
+- `git diff --check` reported no whitespace errors. No tests or live Discord app session were run.
+- The user needs to install/run this build and try the desktop app by itself for at least one minute; the 19:47 log was only the startup snapshot from the previous diagnostic build.
+
 ## References
 
 - [GoodbyeDPI official repository and behavior description](https://github.com/ValdikSS/GoodbyeDPI)
