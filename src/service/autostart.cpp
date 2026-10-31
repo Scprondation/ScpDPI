@@ -1,14 +1,17 @@
 #include "autostart.hpp"
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winreg.h>
 #include <shlobj.h>
+#include <tlhelp32.h>
 #endif
 
 namespace scpdpi {
@@ -23,6 +26,103 @@ Result<std::filesystem::path> current_executable() {
     return Result<std::filesystem::path>::success(std::filesystem::path(buffer.data()));
 }
 
+Result<std::filesystem::path> protected_base_directory() {
+    PWSTR program_files = nullptr;
+    const HRESULT result = SHGetKnownFolderPath(FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, nullptr, &program_files);
+    if (FAILED(result))
+        return Result<std::filesystem::path>::failure({"Could not locate the protected Windows application directory", static_cast<int>(result)});
+    const std::filesystem::path path = std::filesystem::path(program_files) / L"ScpDPI";
+    CoTaskMemFree(program_files);
+    return Result<std::filesystem::path>::success(path);
+}
+
+Result<std::filesystem::path> versioned_install_directory(const std::filesystem::path& source_exe) {
+    std::error_code error;
+    const auto modified = std::filesystem::last_write_time(source_exe, error);
+    if (error) return Result<std::filesystem::path>::failure({"Could not identify this ScpDPI build", error.value()});
+    const auto size = std::filesystem::file_size(source_exe, error);
+    if (error) return Result<std::filesystem::path>::failure({"Could not identify this ScpDPI build", error.value()});
+    const auto ticks = static_cast<std::uint64_t>(modified.time_since_epoch().count());
+    const auto base = protected_base_directory();
+    if (!base) return Result<std::filesystem::path>::failure(base.error());
+    const auto version = L"build-" + std::to_wstring(ticks) + L"-" + std::to_wstring(size);
+    return Result<std::filesystem::path>::success(base.value() / L"versions" / version);
+}
+
+bool path_is_within(const std::wstring& path, const std::wstring& directory) {
+    if (path.size() <= directory.size()) return false;
+    if (CompareStringOrdinal(path.data(), static_cast<int>(directory.size()), directory.data(),
+                             static_cast<int>(directory.size()), TRUE) != CSTR_EQUAL) return false;
+    return path[directory.size()] == L'\\' || path[directory.size()] == L'/';
+}
+
+Result<void> stop_installed_background_services(const std::filesystem::path& protected_root) {
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0U);
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return Result<void>::failure({"Could not inspect existing ScpDPI background processes", static_cast<int>(GetLastError())});
+    struct SnapshotGuard { HANDLE value; ~SnapshotGuard() { CloseHandle(value); } } snapshot_guard{snapshot};
+    PROCESSENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    if (!Process32FirstW(snapshot, &entry))
+        return Result<void>::failure({"Could not enumerate existing ScpDPI background processes", static_cast<int>(GetLastError())});
+    const std::wstring root = protected_root.wstring();
+    do {
+        if (entry.th32ProcessID == GetCurrentProcessId()) continue;
+        HANDLE query = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
+        if (query == nullptr) continue;
+        std::array<wchar_t, 32768> image{};
+        DWORD length = static_cast<DWORD>(image.size());
+        const BOOL got_path = QueryFullProcessImageNameW(query, 0U, image.data(), &length);
+        CloseHandle(query);
+        if (!got_path || length == 0U) continue;
+        const std::wstring image_path(image.data(), length);
+        const auto separator = image_path.find_last_of(L"\\/");
+        if (separator == std::wstring::npos || CompareStringOrdinal(image_path.data() + separator + 1U, -1,
+                L"scpdpi_service.exe", -1, TRUE) != CSTR_EQUAL ||
+            !path_is_within(image_path, root)) continue;
+        HANDLE process = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, entry.th32ProcessID);
+        if (process == nullptr)
+            return Result<void>::failure({"Could not stop the previous ScpDPI background service", static_cast<int>(GetLastError())});
+        if (!TerminateProcess(process, 0U)) {
+            const DWORD code = GetLastError();
+            CloseHandle(process);
+            if (code != ERROR_ACCESS_DENIED)
+                return Result<void>::failure({"Could not stop the previous ScpDPI background service", static_cast<int>(code)});
+        } else {
+            (void)WaitForSingleObject(process, 5000U);
+            CloseHandle(process);
+        }
+    } while (Process32NextW(snapshot, &entry));
+    return Result<void>::success();
+}
+
+Result<void> remove_obsolete_packet_runtime(const std::filesystem::path& protected_root) {
+    std::error_code error;
+    if (!std::filesystem::is_directory(protected_root, error)) {
+        if (error == std::errc::no_such_file_or_directory) return Result<void>::success();
+        if (error) return Result<void>::failure({"Could not inspect previous ScpDPI packet runtimes", error.value()});
+        return Result<void>::success();
+    }
+    std::vector<std::filesystem::path> obsolete;
+    for (std::filesystem::recursive_directory_iterator item(protected_root,
+             std::filesystem::directory_options::skip_permission_denied, error), end;
+         !error && item != end; item.increment(error)) {
+        if (!item->is_directory(error) || error || item->path().filename() != L"scpdpi-dpi") continue;
+        const auto current_list = item->path() / L"russia-registry-domains.txt";
+        if (!std::filesystem::is_regular_file(current_list, error)) {
+            error.clear();
+            obsolete.push_back(item->path());
+            item.disable_recursion_pending();
+        }
+    }
+    if (error) return Result<void>::failure({"Could not inspect previous ScpDPI packet runtimes", error.value()});
+    for (const auto& path : obsolete) {
+        std::filesystem::remove_all(path, error);
+        if (error) return Result<void>::failure({"Could not remove a previous ScpDPI packet runtime", error.value()});
+    }
+    return Result<void>::success();
+}
+
 Result<void> copy_if_missing(const std::filesystem::path& source, const std::filesystem::path& destination) {
     std::error_code error;
     if (!std::filesystem::is_regular_file(source, error) || error)
@@ -30,7 +130,7 @@ Result<void> copy_if_missing(const std::filesystem::path& source, const std::fil
     if (std::filesystem::exists(destination, error) && !error) return Result<void>::success();
     error.clear();
     if (!std::filesystem::copy_file(source, destination, std::filesystem::copy_options::none, error))
-        return Result<void>::failure({"Could not copy ScpDPI into the per-user app directory: " + destination.string(), error.value()});
+        return Result<void>::failure({"Could not copy a ScpDPI runtime file: " + destination.string(), error.value()});
     return Result<void>::success();
 }
 
@@ -99,12 +199,15 @@ Result<std::filesystem::path> install_protected_runtime() {
 #ifdef _WIN32
     const auto source_exe = current_executable();
     if (!source_exe) return Result<std::filesystem::path>::failure(source_exe.error());
-    PWSTR program_files = nullptr;
-    const HRESULT known_folder = SHGetKnownFolderPath(FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, nullptr, &program_files);
-    if (FAILED(known_folder))
-        return Result<std::filesystem::path>::failure({"Could not locate the protected Windows application directory", static_cast<int>(known_folder)});
-    const std::filesystem::path install_dir = std::filesystem::path(program_files) / L"ScpDPI";
-    CoTaskMemFree(program_files);
+    const auto protected_root = protected_base_directory();
+    if (!protected_root) return Result<std::filesystem::path>::failure(protected_root.error());
+    const auto versioned_dir = versioned_install_directory(source_exe.value());
+    if (!versioned_dir) return Result<std::filesystem::path>::failure(versioned_dir.error());
+    const auto stopped = stop_installed_background_services(protected_root.value());
+    if (!stopped) return Result<std::filesystem::path>::failure(stopped.error());
+    const auto cleaned = remove_obsolete_packet_runtime(protected_root.value());
+    if (!cleaned) return Result<std::filesystem::path>::failure(cleaned.error());
+    const std::filesystem::path install_dir = versioned_dir.value();
     std::error_code error;
     std::filesystem::create_directories(install_dir, error);
     if (error) return Result<std::filesystem::path>::failure({"Could not create the protected ScpDPI install directory", error.value()});
@@ -130,6 +233,17 @@ Result<std::filesystem::path> install_protected_runtime() {
     if (!legacy_removed) return Result<std::filesystem::path>::failure(legacy_removed.error());
     return Result<std::filesystem::path>::success(install_dir);
 #else
+    return Result<std::filesystem::path>::failure({"Protected Windows runtime installation is not available on this platform", 0});
+#endif
+}
+
+Result<std::filesystem::path> expected_protected_runtime_path(const std::filesystem::path& source_directory) {
+#ifdef _WIN32
+    const auto target = versioned_install_directory(source_directory / L"scpdpi_service.exe");
+    if (!target) return Result<std::filesystem::path>::failure(target.error());
+    return Result<std::filesystem::path>::success(target.value() / L"scpdpi_service.exe");
+#else
+    (void)source_directory;
     return Result<std::filesystem::path>::failure({"Protected Windows runtime installation is not available on this platform", 0});
 #endif
 }

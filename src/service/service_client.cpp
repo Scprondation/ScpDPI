@@ -123,13 +123,30 @@ Json request_service(const std::string& command, const Json& payload) {
 
 Result<void> ensure_background_service(const std::filesystem::path& install_dir) {
 #ifdef _WIN32
-    if (request_service("status", Json::object()).value("ok", false)) return Result<void>::success();
-    const auto task = ensure_elevated_background_task(install_dir);
+    const auto expected_path = expected_protected_runtime_path(install_dir);
+    if (!expected_path) return Result<void>::failure(expected_path.error());
+    const auto matches_expected_service = [&](const Json& status) {
+        if (!status.is_object() || !status.value("ok", false) || !status.contains("process_path") ||
+            !status["process_path"].is_string()) return false;
+        const std::string utf8_path = status["process_path"].get<std::string>();
+        if (utf8_path.empty()) return false;
+        const int wide_length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8_path.data(),
+                                                     static_cast<int>(utf8_path.size()), nullptr, 0);
+        if (wide_length <= 0) return false;
+        std::wstring running_path(static_cast<std::size_t>(wide_length), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8_path.data(), static_cast<int>(utf8_path.size()),
+                                running_path.data(), wide_length) != wide_length) return false;
+        return CompareStringOrdinal(running_path.c_str(), -1, expected_path.value().c_str(), -1, TRUE) == CSTR_EQUAL;
+    };
+    const auto current_status = request_service("status", Json::object());
+    if (matches_expected_service(current_status)) return Result<void>::success();
+    const bool stale_service_running = current_status.is_object() && current_status.value("ok", false);
+    const auto task = ensure_elevated_background_task(install_dir, stale_service_running);
     if (!task) return task;
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (std::chrono::steady_clock::now() < deadline) {
-        if (request_service("status", Json::object()).value("ok", false)) return Result<void>::success();
+        if (matches_expected_service(request_service("status", Json::object()))) return Result<void>::success();
         Sleep(150U);
     }
     return Result<void>::failure({"ScpDPI background process did not open its local control pipe", 0});

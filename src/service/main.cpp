@@ -24,6 +24,7 @@
 #else
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shlobj.h>
 #endif
 
 namespace {
@@ -63,14 +64,35 @@ json snapshot_json(const EngineSnapshot& snapshot) {
 
 std::filesystem::path user_config_path() {
 #ifdef _WIN32
-    std::array<wchar_t, 32768> base{};
-    const DWORD size = GetEnvironmentVariableW(L"LOCALAPPDATA", base.data(), static_cast<DWORD>(base.size()));
-    if (size > 0U && size < base.size()) return std::filesystem::path(base.data()) / L"ScpDPI" / L"config.json";
+    PWSTR base = nullptr;
+    const HRESULT result = SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &base);
+    if (SUCCEEDED(result) && base != nullptr) {
+        const std::filesystem::path path = std::filesystem::path(base) / L"ScpDPI" / L"config.json";
+        CoTaskMemFree(base);
+        return path;
+    }
+    if (base != nullptr) CoTaskMemFree(base);
     return std::filesystem::temp_directory_path() / "ScpDPI" / "config.json";
 #else
     if (const char* base = std::getenv("XDG_CONFIG_HOME"); base != nullptr && *base != '\0') return std::filesystem::path(base) / "scpdpi" / "config.json";
     if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') return std::filesystem::path(home) / ".config" / "scpdpi" / "config.json";
     return std::filesystem::path("/tmp") / ("scpdpi-" + std::to_string(static_cast<unsigned long long>(std::getuid()))) / "config.json";
+#endif
+}
+
+std::string current_executable_path_utf8() {
+#ifdef _WIN32
+    std::array<wchar_t, 32768> buffer{};
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length == 0U || length >= buffer.size()) return {};
+    const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, buffer.data(), static_cast<int>(length), nullptr, 0, nullptr, nullptr);
+    if (required <= 0) return {};
+    std::string path(static_cast<std::size_t>(required), '\0');
+    const int written = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, buffer.data(), static_cast<int>(length), path.data(), required, nullptr, nullptr);
+    if (written != required) return {};
+    return path;
+#else
+    return {};
 #endif
 }
 
@@ -123,11 +145,15 @@ public:
         }
         if (request.command == "enable_dpi") {
             std::lock_guard lock(mutex_);
-            config_.dpi_enabled = true;
-            const auto saved = config_store_.save(config_, config_path_);
-            if (!saved) return {{"ok", false}, {"error", saved.error().message}};
             const auto started = dpi_.start();
             if (!started) return {{"ok", false}, {"error", started.error().message}};
+            config_.dpi_enabled = true;
+            const auto saved = config_store_.save(config_, config_path_);
+            if (!saved) {
+                config_.dpi_enabled = false;
+                (void)dpi_.stop();
+                return {{"ok", false}, {"error", saved.error().message}};
+            }
             spdlog::info("DPI packet processor enabled");
             return {{"ok", true}, {"dpi", {{"enabled", true}, {"running", dpi_.running()}}}};
         }
@@ -180,8 +206,18 @@ public:
     json status() {
         std::lock_guard lock(mutex_);
         json response{{"ok", true}, {"api_version", 2}, {"running", running_.load()}, {"profile", config_.profile}};
+        const auto stats = dpi_.stats();
         response["dpi"] = {{"enabled", config_.dpi_enabled}, {"running", dpi_.running()},
-                            {"message", dpi_.last_error()}};
+                            {"message", dpi_.last_error()}, {"packets_seen", stats.packets_seen},
+                            {"tcp_443_outbound", stats.tcp_443_outbound}, {"tcp_443_tunnel", stats.tcp_443_tunnel},
+                            {"tls_hellos_parsed", stats.tls_hellos_parsed}, {"tls_hellos_unlisted", stats.tls_hellos_unlisted},
+                            {"tls_hellos_timed_out", stats.tls_hellos_timed_out}, {"resegment_attempts", stats.resegment_attempts},
+                            {"resegment_failures", stats.resegment_failures}, {"packet_send_failures", stats.packet_send_failures},
+                            {"packets_resegmented", stats.packets_resegmented}, {"domains_matched", stats.domains_matched},
+                            {"quic_udp_443_dropped", stats.quic_udp_443_dropped}, {"tunnel_interfaces", stats.tunnel_interfaces},
+                            {"strategies_changed", stats.strategies_changed}};
+        const auto executable_path = current_executable_path_utf8();
+        if (!executable_path.empty()) response["process_path"] = executable_path;
         if (has_latest_) response["snapshot"] = snapshot_json(latest_);
         else response["snapshot"] = nullptr;
         return response;

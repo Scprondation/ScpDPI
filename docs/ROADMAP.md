@@ -4,7 +4,7 @@
 
 - Native interface and route inventory.
 - Tunnel evidence, route-based classification, safe policy defaults, diagnostics, configuration, telemetry, desktop and local IPC foundation.
-- Windows DPI processing through a pinned GoodbyeDPI/WinDivert backend, controlled from the console.
+- ScpDPI's own Windows TLS SNI parser, Russian domain matching and adaptive TCP segmentation, with WinDivert used for packet capture and reinjection.
 
 ## 0.2.0 candidates
 

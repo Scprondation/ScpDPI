@@ -127,20 +127,37 @@ Result<bool> current_account_is_admin() {
     return Result<bool>::success(is_admin);
 }
 
-Result<bool> task_exists() {
+Result<std::wstring> registered_task_action_path() {
     ComApartment apartment;
     if (FAILED(apartment.result()) && apartment.result() != RPC_E_CHANGED_MODE)
-        return Result<bool>::failure({"Could not initialize Windows Task Scheduler", static_cast<int>(apartment.result())});
+        return Result<std::wstring>::failure({"Could not initialize Windows Task Scheduler", static_cast<int>(apartment.result())});
     ComOwner<ITaskService> service;
     ComOwner<ITaskFolder> folder;
     auto folder_result = root_folder(service, folder);
-    if (!folder_result) return Result<bool>::failure(folder_result.error());
+    if (!folder_result) return Result<std::wstring>::failure(folder_result.error());
     BstrOwner name(task_name);
     ComOwner<IRegisteredTask> task;
     const HRESULT found = folder->GetTask(name.get(), task.put());
-    if (is_task_not_found(found)) return Result<bool>::success(false);
-    if (FAILED(found)) return Result<bool>::failure({"Could not inspect the ScpDPI background task", static_cast<int>(found)});
-    return Result<bool>::success(true);
+    if (is_task_not_found(found)) return Result<std::wstring>::success({});
+    if (FAILED(found)) return Result<std::wstring>::failure({"Could not inspect the ScpDPI background task", static_cast<int>(found)});
+    ComOwner<ITaskDefinition> definition;
+    HRESULT result = task->get_Definition(definition.put());
+    if (FAILED(result)) return Result<std::wstring>::failure({"Could not inspect the ScpDPI background action", static_cast<int>(result)});
+    ComOwner<IActionCollection> actions;
+    result = definition->get_Actions(actions.put());
+    if (FAILED(result)) return Result<std::wstring>::failure({"Could not inspect the ScpDPI background action", static_cast<int>(result)});
+    ComOwner<IAction> generic_action;
+    result = actions->get_Item(1, generic_action.put());
+    if (FAILED(result)) return Result<std::wstring>::failure({"Could not inspect the ScpDPI background action", static_cast<int>(result)});
+    ComOwner<IExecAction> action;
+    result = generic_action->QueryInterface(IID_IExecAction, reinterpret_cast<void**>(action.put()));
+    if (FAILED(result)) return Result<std::wstring>::failure({"The ScpDPI background task has an unsupported action", static_cast<int>(result)});
+    BSTR path = nullptr;
+    result = action->get_Path(&path);
+    if (FAILED(result)) return Result<std::wstring>::failure({"Could not read the ScpDPI background action path", static_cast<int>(result)});
+    std::wstring value = path == nullptr ? L"" : path;
+    SysFreeString(path);
+    return Result<std::wstring>::success(std::move(value));
 }
 
 Result<void> run_registered_task() {
@@ -288,10 +305,13 @@ Result<void> install_elevated_background_task() {
     return Result<void>::success();
 }
 
-Result<void> ensure_elevated_background_task(const std::filesystem::path& install_dir) {
-    auto exists = task_exists();
-    if (!exists) return Result<void>::failure(exists.error());
-    if (exists.value()) return run_registered_task();
+Result<void> ensure_elevated_background_task(const std::filesystem::path& install_dir, bool force_reinstall) {
+    const auto expected = expected_protected_runtime_path(install_dir);
+    if (!expected) return Result<void>::failure(expected.error());
+    const auto registered = registered_task_action_path();
+    if (!registered) return Result<void>::failure(registered.error());
+    if (!force_reinstall && !registered.value().empty() && CompareStringOrdinal(registered.value().c_str(), -1,
+            expected.value().c_str(), -1, TRUE) == CSTR_EQUAL) return run_registered_task();
 
     const auto admin_account = current_account_is_admin();
     if (!admin_account) return Result<void>::failure(admin_account.error());
@@ -336,18 +356,7 @@ Result<void> set_background_task_autostart(bool enabled) {
     ComOwner<IRegisteredTask> task;
     HRESULT result = folder->GetTask(name.get(), task.put());
     if (FAILED(result)) return Result<void>::failure({"ScpDPI's elevated background task is not installed", static_cast<int>(result)});
-    ComOwner<ITaskDefinition> definition;
-    result = task->get_Definition(definition.put());
-    if (FAILED(result)) return Result<void>::failure({"Could not update ScpDPI's Windows startup setting", static_cast<int>(result)});
-    ComOwner<ITriggerCollection> triggers;
-    result = definition->get_Triggers(triggers.put());
-    if (FAILED(result)) return Result<void>::failure({"Could not update ScpDPI's Windows startup setting", static_cast<int>(result)});
-    ComOwner<ITrigger> generic_trigger;
-    result = triggers->get_Item(1, generic_trigger.put());
-    if (FAILED(result)) return Result<void>::failure({"Could not find ScpDPI's Windows startup trigger", static_cast<int>(result)});
-    result = generic_trigger->put_Enabled(enabled ? VARIANT_TRUE : VARIANT_FALSE);
-    if (FAILED(result)) return Result<void>::failure({"Could not update ScpDPI's Windows startup setting", static_cast<int>(result)});
-    result = task->put_Enabled(VARIANT_TRUE);
+    result = task->put_Enabled(enabled ? VARIANT_TRUE : VARIANT_FALSE);
     if (FAILED(result)) return Result<void>::failure({"Could not update ScpDPI's Windows startup setting", static_cast<int>(result)});
     if (enabled) return run_registered_task();
     return Result<void>::success();
@@ -360,7 +369,7 @@ namespace scpdpi {
 Result<void> install_elevated_background_task() {
     return Result<void>::failure({"Elevated Windows background tasks are not available on this platform", 0});
 }
-Result<void> ensure_elevated_background_task(const std::filesystem::path&) {
+Result<void> ensure_elevated_background_task(const std::filesystem::path&, bool) {
     return Result<void>::failure({"Elevated Windows background tasks are not available on this platform", 0});
 }
 Result<void> set_background_task_autostart(bool) {

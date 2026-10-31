@@ -5,7 +5,7 @@
 - CMake 3.24 or later and Ninja.
 - C++20 compiler: Visual Studio 2022/2026 MSVC, GCC 11+, or Clang 14+.
 - vcpkg with `VCPKG_ROOT` set. The base manifest installs nlohmann/json, spdlog and GoogleTest.
-- Windows builds download the pinned 1.1 MB GoodbyeDPI archive from its official GitHub release and verify its SHA-256 before staging the runtime.
+- Windows builds download the pinned WinDivert 2.2.2 packet driver and a pinned Russian registry host list. CMake checks both SHA-256 hashes before staging them beside ScpDPI's own packet engine.
 - Qt 6 Quick and QML tooling are needed only for the optional desktop target. The normal CMake configuration and `windows-console-*` presets build Core, Service and tests without Qt.
 
 ## Windows 10/11 x64
@@ -31,7 +31,7 @@ ctest --preset windows-console-debug
 
 For Release, use `windows-console-release`. The executable is `out\build\windows-console-debug\src\service\scpdpi_service.exe`; run it directly or pass `--console` for the interactive interface. The `scpdpi_autostart.exe` helper is built alongside it.
 
-To run the interactive console without Qt, build the Core and Service targets, then start `scpdpi_service.exe`. Its first Windows launch asks for one-time administrator approval, installs protected runtime files under `%ProgramFiles%\ScpDPI`, then registers a hidden elevated task for the current user's sign-in. The task starts the scanner and DPI processor; closing the console leaves them running. Type `autostart on` or `autostart off` to enable or disable the next sign-in trigger, and `dpi on`, `dpi off` or `dpi status` to control packet processing.
+To run the interactive console without Qt, build the Core and Service targets, then start `scpdpi_service.exe`. Its first Windows launch asks for administrator approval, installs this build into a versioned folder under `%ProgramFiles%\ScpDPI`, and registers a hidden elevated task for the current user's sign-in. Closing the console leaves the service and ScpDPI packet engine running. Type `autostart on` or `autostart off` to enable or disable future sign-in launches, and `dpi on`, `dpi off` or `dpi status` to control packet processing. The Russian registry domain data is about 16.5 MB; CMake verifies its pinned SHA-256 before the build.
 
 Use `scpdpi_service.exe --snapshot` for a one-time JSON report. Linux automatic startup is deferred; its console currently runs in the foreground.
 
@@ -66,7 +66,7 @@ For Clang, set `CMAKE_CXX_COMPILER=clang++` at configure time in a separate buil
 - `CMAKE_TOOLCHAIN_FILE` missing: check that `VCPKG_ROOT` points to a vcpkg checkout.
 - Qt target unavailable: install the manifest dependencies and check that vcpkg selected a triplet with Qt Quick/QML.
 - Linux route dump permission: route and interface reads should work as the current user; Linux DPI processing is not implemented.
-- Windows DPI activation: approve the UAC prompt once. If the prompt is cancelled, ScpDPI cannot load the WinDivert packet driver.
+- Windows DPI activation: approve the UAC prompt to install/update the versioned packet engine and driver. If the prompt is cancelled, ScpDPI cannot load the WinDivert packet driver.
 - Native platform code has only been verified when the corresponding build is run on that OS. Do not interpret a generated build directory or successful configure as a completed cross-platform build.
 
 ## Verification status

@@ -1,5 +1,6 @@
 #include "console_ui.hpp"
 
+#include <cstdint>
 #include <iostream>
 #include <string_view>
 
@@ -32,6 +33,21 @@ void print_summary(const Json& response) {
               << (dpi.value("enabled", false) ? "  |  enabled" : "  |  disabled") << '\n';
     if (!dpi.value("message", std::string{}).empty())
         std::cout << "  " << dpi.value("message", std::string{}) << '\n';
+    if (dpi.value("packets_seen", std::uint64_t{}) != 0U || dpi.value("domains_matched", std::uint64_t{}) != 0U) {
+        std::cout << "  Packets inspected: " << dpi.value("packets_seen", std::uint64_t{})
+                  << "  |  outbound TLS: " << dpi.value("tcp_443_outbound", std::uint64_t{})
+                  << "  (VPN: " << dpi.value("tcp_443_tunnel", std::uint64_t{}) << ")"
+                  << "  |  ClientHello parsed: " << dpi.value("tls_hellos_parsed", std::uint64_t{}) << '\n'
+                  << "  Listed TLS hosts: " << dpi.value("domains_matched", std::uint64_t{})
+                  << "  |  unlisted: " << dpi.value("tls_hellos_unlisted", std::uint64_t{})
+                  << "  |  timed out: " << dpi.value("tls_hellos_timed_out", std::uint64_t{})
+                  << "  |  split attempts/failures: " << dpi.value("resegment_attempts", std::uint64_t{})
+                  << '/' << dpi.value("resegment_failures", std::uint64_t{})
+                  << "  |  reinject failures: " << dpi.value("packet_send_failures", std::uint64_t{})
+                  << "  |  split packets: " << dpi.value("packets_resegmented", std::uint64_t{})
+                  << "  |  UDP/443 blocked: " << dpi.value("quic_udp_443_dropped", std::uint64_t{})
+                  << "  |  VPN interfaces: " << dpi.value("tunnel_interfaces", std::uint64_t{}) << '\n';
+    }
     const auto snapshot = response.value("snapshot", Json::object());
     if (!snapshot.is_object()) {
         std::cout << "No network snapshot is available yet.\n";

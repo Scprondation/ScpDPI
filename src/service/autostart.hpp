@@ -11,9 +11,10 @@ namespace scpdpi {
 
 /** Copies the current build into Program Files. Call only from the elevated installer. */
 [[nodiscard]] Result<std::filesystem::path> install_protected_runtime();
+[[nodiscard]] Result<std::filesystem::path> expected_protected_runtime_path(const std::filesystem::path& source_directory);
 
 /** Installs or runs the elevated logon task that hosts packet processing. */
-[[nodiscard]] Result<void> ensure_elevated_background_task(const std::filesystem::path& install_dir);
+[[nodiscard]] Result<void> ensure_elevated_background_task(const std::filesystem::path& install_dir, bool force_reinstall = false);
 
 /** Called only by the elevated installer process. */
 [[nodiscard]] Result<void> install_elevated_background_task();
