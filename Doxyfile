@@ -1,0 +1,17 @@
+PROJECT_NAME           = ScpDPI
+PROJECT_NUMBER         = 0.1.0
+OUTPUT_DIRECTORY       = docs/api-reference
+INPUT                  = src/core/include
+RECURSIVE              = YES
+FILE_PATTERNS          = *.hpp
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+JAVADOC_AUTOBRIEF      = YES
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+HIDE_UNDOC_CLASSES     = NO
+HAVE_DOT               = NO
+USE_MDFILE_AS_MAINPAGE = README.md

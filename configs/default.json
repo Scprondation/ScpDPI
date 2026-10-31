@@ -1,0 +1,15 @@
+{
+  "version": "0.1.0",
+  "engine": {
+    "enabled": true,
+    "scan_interval_ms": 3000
+  },
+  "classification": {
+    "unknown_action": "bypass"
+  },
+  "profile": "default",
+  "logging": {
+    "level": "info",
+    "file_enabled": true
+  }
+}

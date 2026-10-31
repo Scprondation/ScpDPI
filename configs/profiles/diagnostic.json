@@ -1,0 +1,9 @@
+{
+  "id": "diagnostic",
+  "name": "Diagnostic",
+  "rules": [
+    { "id": "unknown-bypass", "priority": 1000, "traffic": "unknown", "action": "bypass", "active": true },
+    { "id": "vpn-inspect", "priority": 100, "traffic": "vpn", "action": "inspect", "active": true },
+    { "id": "direct-inspect", "priority": 50, "traffic": "direct", "action": "inspect", "active": true }
+  ]
+}

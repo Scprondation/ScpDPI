@@ -1,0 +1,23 @@
+# Build and package output
+/out/
+/build/
+/cmake-build-*/
+/vcpkg_installed/
+/vcpkg_downloads/
+
+# IDE and compiler state
+/.vs/
+/.idea/
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+
+# Local runtime data
+*.log
+*.log.*
+scpdpi.log*
+
+# OS-generated files
+Thumbs.db
+.DS_Store
